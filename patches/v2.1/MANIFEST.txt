@@ -1,0 +1,21 @@
+Owner Property v2.1 Premium UI
+
+Base: consolidated modular v2.0 baseline
+Base SHA-256: 19fbf4fe1e6eca3fefc86b66a34395f6b1b9e19d5c7c1b6bad99d4abc8862717
+
+Patch parts in strict order:
+part-00.b64
+part-01.b64
+part-02.b64
+part-03.b64
+part-04.b64
+part-05.b64
+
+Uncompressed patch SHA-256:
+f0d8637b7451d17e7c0f9d600db9e3d4f91c14f8662a7db3e85aa04717a7efa8
+
+XZ archive SHA-256:
+73dd8bf6873765ea404b5d72b1a244514396c5e1b8c3475a25dbda60f656c6a5
+
+Full clean v2.1 baseline ZIP SHA-256:
+c67c992ae069d52a459f3d260d47d11b6d7cc203e4e363f78677a8b5c87a3dfb
