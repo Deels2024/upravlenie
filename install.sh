@@ -6,15 +6,18 @@ RELEASE_DIR="$BASE_DIR/release-v1.1"
 PATCH_V12="$BASE_DIR/patches/v1.2-ui.patch"
 PATCH_V13_B64="$BASE_DIR/patches/v1.3-operations.patch.gz.b64"
 PATCH_V14_B64="$BASE_DIR/patches/v1.4-tenants-staff.patch.xz.b64"
+PATCH_V15_DIR="$BASE_DIR/patches/v1.5"
 APP_ROOT="$BASE_DIR/app"
 APP_DIR="$APP_ROOT/property-owner-pwa"
-TMP_DIR="$APP_ROOT/.v1.4-unpack"
+TMP_DIR="$APP_ROOT/.v1.5-unpack"
 PATCH_V13_TMP="$TMP_DIR/v1.3-operations.patch"
 PATCH_V14_TMP="$TMP_DIR/v1.4-tenants-staff.patch"
+PATCH_V15_TMP="$TMP_DIR/v1.5-utilities.patch"
 ARCHIVE="$BASE_DIR/.owner-property-pwa-v1.1-production.zip"
 EXPECTED_BASE_SHA256="9cf82a181a5ddb3f6ef204b8265395a19391cb644e8254d6bdda2e4437ecef24"
 EXPECTED_V13_PATCH_SHA256="b3dcbd8ef75114d53163c5f8d22cfa819f540c610bfdd42984d97ee497ef4485"
 EXPECTED_V14_PATCH_SHA256="9f5af48e2618198d02501af29672d9179bda3b77fb1e745c4586f613b5c2a117"
+EXPECTED_V15_PATCH_SHA256="700aada72c784f42cda3fb0807e67d1bc8d7ccf19d077dac09e505adbefb1a28"
 
 log() { printf '\n[Owner Property] %s\n' "$*"; }
 fail() { printf '\n[Owner Property] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -41,6 +44,8 @@ mapfile -t PARTS < <(find "$RELEASE_DIR" -maxdepth 1 -type f -name 'part-*.b64' 
 [[ -f "$PATCH_V12" ]] || fail "Не найден UI-патч v1.2: $PATCH_V12"
 [[ -f "$PATCH_V13_B64" ]] || fail "Не найден UI/UX-патч v1.3: $PATCH_V13_B64"
 [[ -f "$PATCH_V14_B64" ]] || fail "Не найден UI/UX-патч v1.4: $PATCH_V14_B64"
+mapfile -t V15_PARTS < <(find "$PATCH_V15_DIR" -maxdepth 1 -type f -name 'part-*.b64' | sort)
+[[ ${#V15_PARTS[@]} -eq 2 ]] || fail "Ожидалось 2 части UI/UX-патча v1.5, найдено: ${#V15_PARTS[@]}"
 
 log "Восстанавливаю проверенную production-базу v1.1..."
 cat "${PARTS[@]}" | tr -d '\r\n' | base64 -d > "$ARCHIVE"
@@ -78,6 +83,15 @@ printf '%s  %s\n' "$EXPECTED_V14_PATCH_SHA256" "$PATCH_V14_TMP" | sha256sum -c -
 )
 rm -f "$PATCH_V14_TMP"
 
+log "Проверяю и применяю Owner Property v1.5 — Оборудование, ТО, Показатели и Расходы..."
+cat "${V15_PARTS[@]}" | tr -d '\r\n' | base64 -d | xz -dc > "$PATCH_V15_TMP"
+printf '%s  %s\n' "$EXPECTED_V15_PATCH_SHA256" "$PATCH_V15_TMP" | sha256sum -c - >/dev/null || fail "Контрольная сумма UI/UX-патча v1.5 не совпала. Установка остановлена."
+(
+  cd "$TMP_DIR/property-owner-pwa"
+  patch -p1 --batch --forward < "$PATCH_V15_TMP"
+)
+rm -f "$PATCH_V15_TMP"
+
 # Проверяем синтаксис изменённого frontend/backend до замены рабочей версии.
 if command -v node >/dev/null 2>&1; then
   node --check "$TMP_DIR/property-owner-pwa/public/app.js" >/dev/null
@@ -97,6 +111,6 @@ mv "$TMP_DIR/property-owner-pwa" "$APP_DIR"
 rm -rf "$TMP_DIR"
 chmod +x "$APP_DIR"/*.sh 2>/dev/null || true
 
-log "Запускаю production-установщик приложения v1.4..."
+log "Запускаю production-установщик приложения v1.5..."
 cd "$APP_DIR"
 exec ./install.sh
