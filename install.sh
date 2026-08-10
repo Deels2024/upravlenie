@@ -3,10 +3,14 @@ set -euo pipefail
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RELEASE_DIR="$BASE_DIR/release-v1.1"
-PATCH_FILE="$BASE_DIR/patches/v1.2-ui.patch"
+PATCH_V12="$BASE_DIR/patches/v1.2-ui.patch"
+PATCH_V13_B64="$BASE_DIR/patches/v1.3-operations.patch.gz.b64"
+PATCH_V13_GZ="$BASE_DIR/.v1.3-operations.patch.gz"
+PATCH_V13="$BASE_DIR/.v1.3-operations.patch"
+PATCH_V13_SHA256="96d5a4911f820dcd746f816935868082b8249914de9e6b8acb824c1df98ec2cf"
 APP_ROOT="$BASE_DIR/app"
 APP_DIR="$APP_ROOT/property-owner-pwa"
-TMP_DIR="$APP_ROOT/.v1.2-unpack"
+TMP_DIR="$APP_ROOT/.v1.3-unpack"
 ARCHIVE="$BASE_DIR/.owner-property-pwa-v1.1-production.zip"
 EXPECTED_SHA256="9cf82a181a5ddb3f6ef204b8265395a19391cb644e8254d6bdda2e4437ecef24"
 
@@ -17,19 +21,20 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   fail "Запустите установку через sudo: sudo ./install.sh"
 fi
 
-if ! command -v base64 >/dev/null 2>&1 || ! command -v sha256sum >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1 || ! command -v patch >/dev/null 2>&1; then
+if ! command -v base64 >/dev/null 2>&1 || ! command -v sha256sum >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1 || ! command -v patch >/dev/null 2>&1 || ! command -v gzip >/dev/null 2>&1; then
   if command -v apt-get >/dev/null 2>&1; then
     log "Устанавливаю базовые системные утилиты..."
     apt-get update -y
-    DEBIAN_FRONTEND=noninteractive apt-get install -y coreutils ca-certificates unzip patch
+    DEBIAN_FRONTEND=noninteractive apt-get install -y coreutils ca-certificates unzip patch gzip
   else
-    fail "Нужны base64, sha256sum, unzip и patch. Автоустановка рассчитана на Ubuntu/Debian."
+    fail "Нужны base64, sha256sum, unzip, patch и gzip. Автоустановка рассчитана на Ubuntu/Debian."
   fi
 fi
 
 mapfile -t PARTS < <(find "$RELEASE_DIR" -maxdepth 1 -type f -name 'part-*.b64' | sort)
 [[ ${#PARTS[@]} -eq 7 ]] || fail "Ожидалось 7 частей базового релиза v1.1, найдено: ${#PARTS[@]}"
-[[ -f "$PATCH_FILE" ]] || fail "Не найден UI-патч v1.2: $PATCH_FILE"
+[[ -f "$PATCH_V12" ]] || fail "Не найден UI-патч v1.2: $PATCH_V12"
+[[ -f "$PATCH_V13_B64" ]] || fail "Не найден UI-патч v1.3: $PATCH_V13_B64"
 
 log "Восстанавливаю проверенную production-базу v1.1..."
 cat "${PARTS[@]}" | tr -d '\r\n' | base64 -d > "$ARCHIVE"
@@ -46,8 +51,18 @@ unzip -q "$ARCHIVE" -d "$TMP_DIR"
 log "Применяю интерфейс Owner Property v1.2..."
 (
   cd "$TMP_DIR/property-owner-pwa"
-  patch -p1 --batch --forward < "$PATCH_FILE"
+  patch -p1 --batch --forward < "$PATCH_V12"
 )
+
+log "Проверяю и применяю интерфейс Owner Property v1.3..."
+tr -d '\r\n' < "$PATCH_V13_B64" | base64 -d > "$PATCH_V13_GZ"
+printf '%s  %s\n' "$PATCH_V13_SHA256" "$PATCH_V13_GZ" | sha256sum -c - >/dev/null || fail "Контрольная сумма UI-патча v1.3 не совпала."
+gzip -dc "$PATCH_V13_GZ" > "$PATCH_V13"
+(
+  cd "$TMP_DIR/property-owner-pwa"
+  patch -p1 --batch --forward < "$PATCH_V13"
+)
+rm -f "$PATCH_V13_GZ" "$PATCH_V13"
 
 # Проверяем синтаксис изменённого frontend до замены рабочей версии.
 if command -v node >/dev/null 2>&1; then
@@ -67,6 +82,6 @@ mv "$TMP_DIR/property-owner-pwa" "$APP_DIR"
 rm -rf "$TMP_DIR"
 chmod +x "$APP_DIR"/*.sh 2>/dev/null || true
 
-log "Запускаю production-установщик приложения v1.2..."
+log "Запускаю production-установщик приложения v1.3..."
 cd "$APP_DIR"
 exec ./install.sh
