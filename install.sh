@@ -9,6 +9,20 @@ TMP_DIR="$APP_ROOT/.v2-unpack"
 ARCHIVE="$BASE_DIR/.owner-property-pwa-v2.0.zip"
 EXPECTED_SHA256="19fbf4fe1e6eca3fefc86b66a34395f6b1b9e19d5c7c1b6bad99d4abc8862717"
 
+PARTS=(
+  "$SOURCE_DIR/part-00.b64"
+  "$SOURCE_DIR/part-01.b64"
+  "$SOURCE_DIR/part-02.b64"
+  "$SOURCE_DIR/part-03.b64"
+  "$SOURCE_DIR/part-05.b64"
+  "$SOURCE_DIR/part-07.b64"
+  "$SOURCE_DIR/part-09.b64"
+  "$SOURCE_DIR/part-10-11.b64"
+  "$SOURCE_DIR/part-12.b64"
+  "$SOURCE_DIR/part-13.b64"
+  "$SOURCE_DIR/part-14.b64"
+)
+
 log() { printf '\n[Owner Property] %s\n' "$*"; }
 fail() { printf '\n[Owner Property] ERROR: %s\n' "$*" >&2; exit 1; }
 
@@ -29,8 +43,9 @@ for cmd in base64 sha256sum unzip; do
   fi
 done
 
-mapfile -t PARTS < <(find "$SOURCE_DIR" -maxdepth 1 -type f -name 'part-*.b64' | sort)
-[[ ${#PARTS[@]} -eq 11 ]] || fail "Ожидалось 11 частей baseline v2.0, найдено: ${#PARTS[@]}"
+for part in "${PARTS[@]}"; do
+  [[ -f "$part" ]] || fail "Не найдена часть baseline v2.0: $part"
+done
 
 log "Собираю единый Owner Property v2.0 baseline..."
 cat "${PARTS[@]}" | tr -d '\r\n' | base64 -d > "$ARCHIVE"
