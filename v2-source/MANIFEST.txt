@@ -1,0 +1,19 @@
+Owner Property Management PWA — v2.0 modular baseline
+
+Assembly order:
+1. part-00.b64
+2. part-01.b64
+3. part-02.b64
+4. part-03.b64      (contains original chunks 03-04)
+5. part-05.b64      (contains original chunks 05-06)
+6. part-07.b64      (contains original chunks 07-08)
+7. part-09.b64
+8. part-10-11.b64   (contains original chunks 10-11)
+9. part-12.b64
+10. part-13.b64
+11. part-14.b64
+
+Decoded ZIP SHA-256:
+19fbf4fe1e6eca3fefc86b66a34395f6b1b9e19d5c7c1b6bad99d4abc8862717
+
+The root install.sh uses this exact order and refuses installation if the resulting SHA-256 does not match.
