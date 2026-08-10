@@ -3,13 +3,16 @@ set -euo pipefail
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="$BASE_DIR/v2-source"
+PATCH_DIR="$BASE_DIR/patches/v2.1"
 APP_ROOT="$BASE_DIR/app"
 APP_DIR="$APP_ROOT/property-owner-pwa"
-TMP_DIR="$APP_ROOT/.v2-unpack"
+TMP_DIR="$APP_ROOT/.v2.1-unpack"
 ARCHIVE="$BASE_DIR/.owner-property-pwa-v2.0.zip"
-EXPECTED_SHA256="19fbf4fe1e6eca3fefc86b66a34395f6b1b9e19d5c7c1b6bad99d4abc8862717"
+PATCH_FILE="$APP_ROOT/.owner-property-v2.1.patch"
+EXPECTED_BASE_SHA256="19fbf4fe1e6eca3fefc86b66a34395f6b1b9e19d5c7c1b6bad99d4abc8862717"
+EXPECTED_PATCH_SHA256="f0d8637b7451d17e7c0f9d600db9e3d4f91c14f8662a7db3e85aa04717a7efa8"
 
-PARTS=(
+BASE_PARTS=(
   "$SOURCE_DIR/part-00.b64"
   "$SOURCE_DIR/part-01.b64"
   "$SOURCE_DIR/part-02.b64"
@@ -23,6 +26,15 @@ PARTS=(
   "$SOURCE_DIR/part-14.b64"
 )
 
+V21_PARTS=(
+  "$PATCH_DIR/part-00.b64"
+  "$PATCH_DIR/part-01.b64"
+  "$PATCH_DIR/part-02.b64"
+  "$PATCH_DIR/part-03.b64"
+  "$PATCH_DIR/part-04.b64"
+  "$PATCH_DIR/part-05.b64"
+)
+
 log() { printf '\n[Owner Property] %s\n' "$*"; }
 fail() { printf '\n[Owner Property] ERROR: %s\n' "$*" >&2; exit 1; }
 
@@ -30,28 +42,29 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   fail "Запустите установку через sudo: sudo ./install.sh"
 fi
 
-for cmd in base64 sha256sum unzip; do
+for cmd in base64 sha256sum unzip xz patch; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     if command -v apt-get >/dev/null 2>&1; then
       log "Устанавливаю базовые системные утилиты..."
       apt-get update -y
-      DEBIAN_FRONTEND=noninteractive apt-get install -y coreutils ca-certificates unzip
+      DEBIAN_FRONTEND=noninteractive apt-get install -y coreutils ca-certificates unzip xz-utils patch
       break
     else
-      fail "Нужны base64, sha256sum и unzip. Автоустановка рассчитана на Ubuntu/Debian."
+      fail "Нужны base64, sha256sum, unzip, xz и patch. Автоустановка рассчитана на Ubuntu/Debian."
     fi
   fi
 done
 
-for part in "${PARTS[@]}"; do
+for part in "${BASE_PARTS[@]}"; do
   [[ -f "$part" ]] || fail "Не найдена часть baseline v2.0: $part"
 done
+for part in "${V21_PARTS[@]}"; do
+  [[ -f "$part" ]] || fail "Не найдена часть UI-патча v2.1: $part"
+done
 
-log "Собираю единый Owner Property v2.0 baseline..."
-cat "${PARTS[@]}" | tr -d '\r\n' | base64 -d > "$ARCHIVE"
-
-log "Проверяю SHA-256 baseline v2.0..."
-printf '%s  %s\n' "$EXPECTED_SHA256" "$ARCHIVE" | sha256sum -c - >/dev/null || fail "Контрольная сумма v2.0 не совпала. Рабочая версия не изменена."
+log "Собираю проверенную baseline Owner Property v2.0..."
+cat "${BASE_PARTS[@]}" | tr -d '\r\n' | base64 -d > "$ARCHIVE"
+printf '%s  %s\n' "$EXPECTED_BASE_SHA256" "$ARCHIVE" | sha256sum -c - >/dev/null || fail "Контрольная сумма baseline v2.0 не совпала. Рабочая версия не изменена."
 
 mkdir -p "$APP_ROOT"
 rm -rf "$TMP_DIR"
@@ -59,9 +72,27 @@ mkdir -p "$TMP_DIR"
 unzip -q "$ARCHIVE" -d "$TMP_DIR"
 [[ -f "$TMP_DIR/install.sh" && -f "$TMP_DIR/docker-compose.yml" && -f "$TMP_DIR/server.js" ]] || fail "Baseline v2.0 распакован некорректно."
 
+log "Собираю и проверяю premium UI v2.1..."
+cat "${V21_PARTS[@]}" | tr -d '\r\n' | base64 -d | xz -dc > "$PATCH_FILE"
+printf '%s  %s\n' "$EXPECTED_PATCH_SHA256" "$PATCH_FILE" | sha256sum -c - >/dev/null || fail "Контрольная сумма UI-патча v2.1 не совпала. Рабочая версия не изменена."
+(
+  cd "$TMP_DIR"
+  patch -p1 --batch --forward < "$PATCH_FILE"
+)
+rm -f "$PATCH_FILE"
+
+[[ -f "$TMP_DIR/public/premium.css" ]] || fail "После обновления не найден premium.css"
+grep -q 'premium.css' "$TMP_DIR/public/index.html" || fail "Premium-стили не подключены в index.html"
+grep -q '"version": "2.1.0"' "$TMP_DIR/package.json" || fail "Версия приложения после обновления не 2.1.0"
+
+if command -v node >/dev/null 2>&1; then
+  log "Проверяю синтаксис v2.1..."
+  (cd "$TMP_DIR" && npm run check >/dev/null)
+fi
+
 # Сохраняем production-секреты и HTTPS-конфигурацию существующей установки.
 if [[ -d "$APP_DIR" ]]; then
-  log "Мигрирую существующую установку v1.x/v2.x без потери данных..."
+  log "Мигрирую существующую установку без потери данных и настроек..."
   [[ -f "$APP_DIR/.env" ]] && cp -a "$APP_DIR/.env" "$TMP_DIR/.env"
   [[ -f "$APP_DIR/Caddyfile" ]] && cp -a "$APP_DIR/Caddyfile" "$TMP_DIR/Caddyfile"
   rm -rf "$APP_DIR.previous"
@@ -71,6 +102,6 @@ fi
 mv "$TMP_DIR" "$APP_DIR"
 chmod +x "$APP_DIR"/*.sh 2>/dev/null || true
 
-log "Запускаю модульный Owner Property v2.0..."
+log "Запускаю Owner Property v2.1 Premium UI..."
 cd "$APP_DIR"
 exec ./install.sh
