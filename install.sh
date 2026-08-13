@@ -4,9 +4,10 @@ set -euo pipefail
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="$BASE_DIR/v2-source"
 PATCH_DIR="$BASE_DIR/patches/v2.1"
+OVERLAY_DIR="$BASE_DIR/overlays/v2.2"
 APP_ROOT="$BASE_DIR/app"
 APP_DIR="$APP_ROOT/property-owner-pwa"
-TMP_DIR="$APP_ROOT/.v2.1-unpack"
+TMP_DIR="$APP_ROOT/.v2.2-unpack"
 ARCHIVE="$BASE_DIR/.owner-property-pwa-v2.0.zip"
 PATCH_FILE="$APP_ROOT/.owner-property-v2.1.patch"
 EXPECTED_BASE_SHA256="19fbf4fe1e6eca3fefc86b66a34395f6b1b9e19d5c7c1b6bad99d4abc8862717"
@@ -42,15 +43,15 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   fail "Запустите установку через sudo: sudo ./install.sh"
 fi
 
-for cmd in base64 sha256sum unzip xz patch; do
+for cmd in base64 sha256sum unzip xz patch sed; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     if command -v apt-get >/dev/null 2>&1; then
       log "Устанавливаю базовые системные утилиты..."
       apt-get update -y
-      DEBIAN_FRONTEND=noninteractive apt-get install -y coreutils ca-certificates unzip xz-utils patch
+      DEBIAN_FRONTEND=noninteractive apt-get install -y coreutils ca-certificates unzip xz-utils patch sed
       break
     else
-      fail "Нужны base64, sha256sum, unzip, xz и patch. Автоустановка рассчитана на Ubuntu/Debian."
+      fail "Нужны base64, sha256sum, unzip, xz, patch и sed. Автоустановка рассчитана на Ubuntu/Debian."
     fi
   fi
 done
@@ -60,6 +61,9 @@ for part in "${BASE_PARTS[@]}"; do
 done
 for part in "${V21_PARTS[@]}"; do
   [[ -f "$part" ]] || fail "Не найдена часть UI-патча v2.1: $part"
+done
+for file in object-management-ui.js object-card-actions.js object-management.css; do
+  [[ -f "$OVERLAY_DIR/$file" ]] || fail "Не найден overlay v2.2: $file"
 done
 
 log "Собираю проверенную baseline Owner Property v2.0..."
@@ -72,7 +76,7 @@ mkdir -p "$TMP_DIR"
 unzip -q "$ARCHIVE" -d "$TMP_DIR"
 [[ -f "$TMP_DIR/install.sh" && -f "$TMP_DIR/docker-compose.yml" && -f "$TMP_DIR/server.js" ]] || fail "Baseline v2.0 распакован некорректно."
 
-log "Собираю и проверяю premium UI v2.1..."
+log "Применяю проверенный premium UI v2.1..."
 cat "${V21_PARTS[@]}" | tr -d '\r\n' | base64 -d | xz -dc > "$PATCH_FILE"
 printf '%s  %s\n' "$EXPECTED_PATCH_SHA256" "$PATCH_FILE" | sha256sum -c - >/dev/null || fail "Контрольная сумма UI-патча v2.1 не совпала. Рабочая версия не изменена."
 (
@@ -81,13 +85,29 @@ printf '%s  %s\n' "$EXPECTED_PATCH_SHA256" "$PATCH_FILE" | sha256sum -c - >/dev/
 )
 rm -f "$PATCH_FILE"
 
-[[ -f "$TMP_DIR/public/premium.css" ]] || fail "После обновления не найден premium.css"
-grep -q 'premium.css' "$TMP_DIR/public/index.html" || fail "Premium-стили не подключены в index.html"
-grep -q '"version": "2.1.0"' "$TMP_DIR/package.json" || fail "Версия приложения после обновления не 2.1.0"
+log "Подключаю удобное управление объектами v2.2..."
+cp "$OVERLAY_DIR/object-management-ui.js" "$TMP_DIR/public/object-management-ui.js"
+cp "$OVERLAY_DIR/object-card-actions.js" "$TMP_DIR/public/object-card-actions.js"
+cp "$OVERLAY_DIR/object-management.css" "$TMP_DIR/public/object-management.css"
+printf '\n.property-crud-actions [data-building-delete]{display:none!important}\n.sidebar .brand:after{content:"v2.2"!important}\n' >> "$TMP_DIR/public/object-management.css"
+
+sed -i '/premium.css/a\  <link rel="stylesheet" href="/object-management.css" />' "$TMP_DIR/public/index.html"
+sed -i '/<script src="\/forms.js" defer><\/script>/a\  <script src="/object-management-ui.js" defer></script>\n  <script src="/object-card-actions.js" defer></script>' "$TMP_DIR/public/index.html"
+sed -i 's/"version": "2.1.0"/"version": "2.2.0"/' "$TMP_DIR/package.json"
+sed -i "s/version:'2.1.0'/version:'2.2.0'/" "$TMP_DIR/server.js"
+sed -i "s/owner-property-shell-v21-premium/owner-property-shell-v22-objects/" "$TMP_DIR/public/sw.js"
+sed -i "s#'/premium.css'#'/premium.css','/object-management.css'#" "$TMP_DIR/public/sw.js"
+sed -i "s#'/forms.js'#'/forms.js','/object-management-ui.js','/object-card-actions.js'#" "$TMP_DIR/public/sw.js"
+
+[[ -f "$TMP_DIR/public/object-management.css" ]] || fail "Не подключены стили управления объектами v2.2"
+grep -q 'object-management-ui.js' "$TMP_DIR/public/index.html" || fail "UI управления объектами v2.2 не подключён"
+grep -q '"version": "2.2.0"' "$TMP_DIR/package.json" || fail "Версия приложения после обновления не 2.2.0"
 
 if command -v node >/dev/null 2>&1; then
-  log "Проверяю синтаксис v2.1..."
+  log "Проверяю синтаксис v2.2..."
   (cd "$TMP_DIR" && npm run check >/dev/null)
+  node --check "$TMP_DIR/public/object-management-ui.js" >/dev/null
+  node --check "$TMP_DIR/public/object-card-actions.js" >/dev/null
 fi
 
 # Сохраняем production-секреты и HTTPS-конфигурацию существующей установки.
@@ -102,6 +122,6 @@ fi
 mv "$TMP_DIR" "$APP_DIR"
 chmod +x "$APP_DIR"/*.sh 2>/dev/null || true
 
-log "Запускаю Owner Property v2.1 Premium UI..."
+log "Запускаю Owner Property v2.2 Object Management..."
 cd "$APP_DIR"
 exec ./install.sh
