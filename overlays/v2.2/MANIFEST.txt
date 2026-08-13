@@ -1,0 +1,15 @@
+Owner Property v2.2 Object Management
+
+Files:
+- object-management.css — portfolio counters, Active/Archive tabs and responsive object controls.
+- object-management-ui.js — object list/card rendering, automatic counts, search/filter and Active/Archive modes.
+- object-card-actions.js — card actions using existing safe create/edit/archive/restore/detail flows.
+
+Behavior:
+- Object count is calculated from real records; there is no separate manual count field.
+- Add Object creates a real object and increases the active count.
+- Archive moves an old object out of the active portfolio while preserving history.
+- Restore returns an archived object to the active portfolio.
+- Permanent delete remains inside the existing object detail flow and is protected by owner role, confirmation phrase and backend dependency checks.
+
+Release version: 2.2.0
