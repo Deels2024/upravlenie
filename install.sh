@@ -4,10 +4,11 @@ set -euo pipefail
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="$BASE_DIR/v2-source"
 PATCH_DIR="$BASE_DIR/patches/v2.1"
-OVERLAY_DIR="$BASE_DIR/overlays/v2.2"
+OVERLAY_V22="$BASE_DIR/overlays/v2.2"
+OVERLAY_V23="$BASE_DIR/overlays/v2.3"
 APP_ROOT="$BASE_DIR/app"
 APP_DIR="$APP_ROOT/property-owner-pwa"
-TMP_DIR="$APP_ROOT/.v2.2-unpack"
+TMP_DIR="$APP_ROOT/.v2.3-unpack"
 ARCHIVE="$BASE_DIR/.owner-property-pwa-v2.0.zip"
 PATCH_FILE="$APP_ROOT/.owner-property-v2.1.patch"
 EXPECTED_BASE_SHA256="19fbf4fe1e6eca3fefc86b66a34395f6b1b9e19d5c7c1b6bad99d4abc8862717"
@@ -36,6 +37,9 @@ V21_PARTS=(
   "$PATCH_DIR/part-05.b64"
 )
 
+V22_FILES=(object-management-ui.js object-card-actions.js object-management.css)
+V23_FILES=(v23-core.js v23-attention.js v23-calendar.js v23-workspace.js v23-fixes.js v23-polish.css)
+
 log() { printf '\n[Owner Property] %s\n' "$*"; }
 fail() { printf '\n[Owner Property] ERROR: %s\n' "$*" >&2; exit 1; }
 
@@ -56,15 +60,10 @@ for cmd in base64 sha256sum unzip xz patch sed; do
   fi
 done
 
-for part in "${BASE_PARTS[@]}"; do
-  [[ -f "$part" ]] || fail "Не найдена часть baseline v2.0: $part"
-done
-for part in "${V21_PARTS[@]}"; do
-  [[ -f "$part" ]] || fail "Не найдена часть UI-патча v2.1: $part"
-done
-for file in object-management-ui.js object-card-actions.js object-management.css; do
-  [[ -f "$OVERLAY_DIR/$file" ]] || fail "Не найден overlay v2.2: $file"
-done
+for part in "${BASE_PARTS[@]}"; do [[ -f "$part" ]] || fail "Не найдена часть baseline v2.0: $part"; done
+for part in "${V21_PARTS[@]}"; do [[ -f "$part" ]] || fail "Не найдена часть UI-патча v2.1: $part"; done
+for file in "${V22_FILES[@]}"; do [[ -f "$OVERLAY_V22/$file" ]] || fail "Не найден overlay v2.2: $file"; done
+for file in "${V23_FILES[@]}"; do [[ -f "$OVERLAY_V23/$file" ]] || fail "Не найден overlay v2.3: $file"; done
 
 log "Собираю проверенную baseline Owner Property v2.0..."
 cat "${BASE_PARTS[@]}" | tr -d '\r\n' | base64 -d > "$ARCHIVE"
@@ -85,32 +84,33 @@ printf '%s  %s\n' "$EXPECTED_PATCH_SHA256" "$PATCH_FILE" | sha256sum -c - >/dev/
 )
 rm -f "$PATCH_FILE"
 
-log "Подключаю удобное управление объектами v2.2..."
-cp "$OVERLAY_DIR/object-management-ui.js" "$TMP_DIR/public/object-management-ui.js"
-cp "$OVERLAY_DIR/object-card-actions.js" "$TMP_DIR/public/object-card-actions.js"
-cp "$OVERLAY_DIR/object-management.css" "$TMP_DIR/public/object-management.css"
-printf '\n.property-crud-actions [data-building-delete]{display:none!important}\n.sidebar .brand:after{content:"v2.2"!important}\n' >> "$TMP_DIR/public/object-management.css"
+log "Подключаю управление портфелем v2.2 и рабочее пространство v2.3..."
+for file in "${V22_FILES[@]}"; do cp "$OVERLAY_V22/$file" "$TMP_DIR/public/$file"; done
+for file in "${V23_FILES[@]}"; do cp "$OVERLAY_V23/$file" "$TMP_DIR/public/$file"; done
+printf '\n.property-crud-actions [data-building-delete]{display:none!important}\n.sidebar .brand:after{content:"v2.3"!important}\n' >> "$TMP_DIR/public/object-management.css"
 
-sed -i '/premium.css/a\  <link rel="stylesheet" href="/object-management.css" />' "$TMP_DIR/public/index.html"
-sed -i '/<script src="\/forms.js" defer><\/script>/a\  <script src="/object-management-ui.js" defer></script>\n  <script src="/object-card-actions.js" defer></script>' "$TMP_DIR/public/index.html"
-sed -i 's/"version": "2.1.0"/"version": "2.2.0"/' "$TMP_DIR/package.json"
-sed -i "s/version:'2.1.0'/version:'2.2.0'/" "$TMP_DIR/server.js"
-sed -i "s/owner-property-shell-v21-premium/owner-property-shell-v22-objects/" "$TMP_DIR/public/sw.js"
-sed -i "s#'/premium.css'#'/premium.css','/object-management.css'#" "$TMP_DIR/public/sw.js"
-sed -i "s#'/forms.js'#'/forms.js','/object-management-ui.js','/object-card-actions.js'#" "$TMP_DIR/public/sw.js"
+sed -i '/premium.css/a\  <link rel="stylesheet" href="/object-management.css" />\n  <link rel="stylesheet" href="/v23-polish.css" />' "$TMP_DIR/public/index.html"
+sed -i '/<script src="\/forms.js" defer><\/script>/a\  <script src="/object-management-ui.js" defer></script>\n  <script src="/object-card-actions.js" defer></script>\n  <script src="/v23-core.js" defer></script>\n  <script src="/v23-attention.js" defer></script>\n  <script src="/v23-calendar.js" defer></script>\n  <script src="/v23-workspace.js" defer></script>\n  <script src="/v23-fixes.js" defer></script>' "$TMP_DIR/public/index.html"
+sed -i 's/"version": "2.1.0"/"version": "2.3.0"/' "$TMP_DIR/package.json"
+sed -i "s/version:'2.1.0'/version:'2.3.0'/" "$TMP_DIR/server.js"
+sed -i "s/owner-property-shell-v21-premium/owner-property-shell-v23-workspace/" "$TMP_DIR/public/sw.js"
+sed -i "s#'/premium.css'#'/premium.css','/object-management.css','/v23-polish.css'#" "$TMP_DIR/public/sw.js"
+sed -i "s#'/forms.js'#'/forms.js','/object-management-ui.js','/object-card-actions.js','/v23-core.js','/v23-attention.js','/v23-calendar.js','/v23-workspace.js','/v23-fixes.js'#" "$TMP_DIR/public/sw.js"
 
-[[ -f "$TMP_DIR/public/object-management.css" ]] || fail "Не подключены стили управления объектами v2.2"
-grep -q 'object-management-ui.js' "$TMP_DIR/public/index.html" || fail "UI управления объектами v2.2 не подключён"
-grep -q '"version": "2.2.0"' "$TMP_DIR/package.json" || fail "Версия приложения после обновления не 2.2.0"
+[[ -f "$TMP_DIR/public/v23-workspace.js" ]] || fail "Не подключено рабочее пространство объекта v2.3"
+grep -q 'v23-calendar.js' "$TMP_DIR/public/index.html" || fail "Календарь v2.3 не подключён"
+grep -q 'v23-polish.css' "$TMP_DIR/public/index.html" || fail "Стили v2.3 не подключены"
+grep -q '"version": "2.3.0"' "$TMP_DIR/package.json" || fail "Версия приложения после обновления не 2.3.0"
+grep -q "version:'2.3.0'" "$TMP_DIR/server.js" || fail "Backend version не обновлена до 2.3.0"
 
 if command -v node >/dev/null 2>&1; then
-  log "Проверяю синтаксис v2.2..."
+  log "Проверяю синтаксис v2.3..."
   (cd "$TMP_DIR" && npm run check >/dev/null)
-  node --check "$TMP_DIR/public/object-management-ui.js" >/dev/null
-  node --check "$TMP_DIR/public/object-card-actions.js" >/dev/null
+  for file in "${V22_FILES[@]}" "${V23_FILES[@]}"; do
+    [[ "$file" == *.js ]] && node --check "$TMP_DIR/public/$file" >/dev/null
+  done
 fi
 
-# Сохраняем production-секреты и HTTPS-конфигурацию существующей установки.
 if [[ -d "$APP_DIR" ]]; then
   log "Мигрирую существующую установку без потери данных и настроек..."
   [[ -f "$APP_DIR/.env" ]] && cp -a "$APP_DIR/.env" "$TMP_DIR/.env"
@@ -122,6 +122,6 @@ fi
 mv "$TMP_DIR" "$APP_DIR"
 chmod +x "$APP_DIR"/*.sh 2>/dev/null || true
 
-log "Запускаю Owner Property v2.2 Object Management..."
+log "Запускаю Owner Property v2.3 Workspace & Calendar..."
 cd "$APP_DIR"
 exec ./install.sh
