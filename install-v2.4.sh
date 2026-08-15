@@ -18,9 +18,9 @@ for f in "${V22_FILES[@]}"; do [[ -f "$V22/$f" ]] || fail "Не найден v2.
 for f in "${V23_FILES[@]}"; do [[ -f "$V23/$f" ]] || fail "Не найден v2.3/$f"; done
 for f in "${V24_PUBLIC[@]}" field-tools.js; do [[ -f "$V24/$f" ]] || fail "Не найден v2.4/$f"; done
 mkdir -p "$APP_ROOT"; rm -rf "$TMP_DIR"; mkdir -p "$TMP_DIR"
-log "Собираю и проверяю baseline v2.0..."; cat "${BASE_PARTS[@]}" | tr -d '\r\n' | base64 -d > "$ARCHIVE"; printf '%s  %s\n' "$BASE_SHA" "$ARCHIVE" | sha256sum -c - >/dev/null || fail "SHA baseline v2.0 не совпал"
+log "Собираю и проверяю baseline v2.0..."; cat "${BASE_PARTS[@]}" | tr -d '\r\n' | base64 --ignore-garbage -d > "$ARCHIVE"; printf '%s  %s\n' "$BASE_SHA" "$ARCHIVE" | sha256sum -c - >/dev/null || fail "SHA baseline v2.0 не совпал"
 unzip -q "$ARCHIVE" -d "$TMP_DIR"; [[ -f "$TMP_DIR/server.js" ]] || fail "Baseline распакован некорректно"
-log "Применяю проверенный premium UI v2.1..."; cat "${V21_PARTS[@]}" | tr -d '\r\n' | base64 -d | xz -dc > "$PATCH_FILE"; printf '%s  %s\n' "$PATCH_SHA" "$PATCH_FILE" | sha256sum -c - >/dev/null || fail "SHA v2.1 не совпал"; (cd "$TMP_DIR" && patch -p1 --batch --forward < "$PATCH_FILE"); rm -f "$PATCH_FILE"
+log "Применяю проверенный premium UI v2.1..."; cat "${V21_PARTS[@]}" | tr -d '\r\n' | base64 --ignore-garbage -d | xz -dc > "$PATCH_FILE"; printf '%s  %s\n' "$PATCH_SHA" "$PATCH_FILE" | sha256sum -c - >/dev/null || fail "SHA v2.1 не совпал"; (cd "$TMP_DIR" && patch -p1 --batch --forward < "$PATCH_FILE"); rm -f "$PATCH_FILE"
 log "Подключаю v2.2, v2.3 и v2.4..."; for f in "${V22_FILES[@]}"; do cp "$V22/$f" "$TMP_DIR/public/$f"; done; for f in "${V23_FILES[@]}"; do cp "$V23/$f" "$TMP_DIR/public/$f"; done; for f in "${V24_PUBLIC[@]}"; do cp "$V24/$f" "$TMP_DIR/public/$f"; done; cp "$V24/field-tools.js" "$TMP_DIR/src/routes/field-tools.js"
 printf '\n.property-crud-actions [data-building-delete]{display:none!important}\n.sidebar .brand:after{content:"v2.4"!important}\n' >> "$TMP_DIR/public/object-management.css"
 sed -i '/premium.css/a\  <link rel="stylesheet" href="/object-management.css" />\n  <link rel="stylesheet" href="/v23-polish.css" />\n  <link rel="stylesheet" href="/v24-field.css" />' "$TMP_DIR/public/index.html"
