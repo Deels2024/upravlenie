@@ -1,0 +1,33 @@
+name: Owner Property CI
+on:
+  push:
+    branches: [main, 'release/**']
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install release tools
+        run: sudo apt-get update && sudo apt-get install -y xz-utils unzip patch
+      - name: Assemble and syntax-check release
+        env:
+          VERIFY_ONLY: '1'
+          VERIFY_OUTPUT_DIR: ${{ runner.temp }}/owner-property-v24
+        run: bash ./install.sh
+      - name: Smoke-test server
+        env:
+          APP_DIR: ${{ runner.temp }}/owner-property-v24
+        run: |
+          cd "$APP_DIR"
+          HOST=127.0.0.1 PORT=8799 NODE_ENV=test node server.js >server.log 2>&1 &
+          pid=$!; trap 'kill $pid 2>/dev/null || true' EXIT
+          for n in $(seq 1 20); do curl -fsS http://127.0.0.1:8799/healthz >health.json && break; sleep 1; done
+          grep -q '"version":"2.4.0"' health.json
