@@ -1,0 +1,5 @@
+'use strict';
+(function(){
+  const rawOpen=openNotifications;openNotifications=function(){rawOpen();const actions=document.querySelector('.modal-actions');if(actions&&'Notification'in window&&window.isSecureContext){const btn=document.createElement('button');btn.type='button';btn.className='btn btn-secondary';btn.textContent=Notification.permission==='granted'?'Уведомления браузера включены':'Включить уведомления браузера';btn.disabled=Notification.permission==='granted';btn.onclick=async()=>{const p=await Notification.requestPermission();if(p==='granted'){btn.textContent='Уведомления браузера включены';btn.disabled=true;new Notification('Owner Property',{body:'Уведомления включены'});}};actions.prepend(btn);}};
+  let seen=new Set();const rawRefresh=refresh;refresh=async function(){const before=seen;const r=await rawRefresh();const rows=app.data.notifications||[];if('Notification'in window&&Notification.permission==='granted'&&!document.hidden){for(const n of rows){if(!before.has(n.id)&&!n.readAt)new Notification(n.title,{body:n.text||'',tag:n.id});}}seen=new Set(rows.map(x=>x.id));return r;};
+})();
