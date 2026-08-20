@@ -57,13 +57,29 @@ sudo ./install.sh
 
 Установщик создаёт staging-копию текущей рабочей версии, применяет v2.6, выполняет `npm run check` и syntax-check PWA/backend/frontend-модулей и только потом переключает рабочую директорию.
 
-## GitHub Actions и деплой
+## GitHub Actions и self-hosted deploy
 
-- CI запускается на `main`, `release/**` и pull request в `main`;
-- проверяет установщики, production-cleanup, PWA manifest, service worker и мобильный JS;
-- deploy автоматически запускается после push в `main`;
-- целевой сервер: `5.183.191.139`;
-- healthcheck ожидает версию `2.6.0` на порту `8787`.
+CI продолжает выполняться на стандартном GitHub runner. Production deploy переведён на **self-hosted GitHub Runner**, установленный непосредственно на сервере `5.183.191.139`.
+
+Это устраняет зависимость от входящего SSH: сервер сам получает задания GitHub Actions по исходящему HTTPS. Deploy job использует labels:
+
+```text
+self-hosted, linux, x64, upravlenie-prod
+```
+
+На сервере runner работает от отдельного пользователя `actions-runner`. Ему разрешена через `sudo` только команда `/usr/local/sbin/deploy-upravlenie`, которая обновляет checkout `Deels2024/upravlenie`, запускает `./install.sh` и проверяет `/healthz` версии `2.6.0`.
+
+Однократная установка runner:
+
+1. GitHub → `Settings` → `Actions` → `Runners` → `New self-hosted runner`.
+2. Получить краткоживущий registration token.
+3. На сервере в checkout проекта выполнить:
+
+```bash
+sudo RUNNER_TOKEN='<registration-token>' bash ./ops/setup-self-hosted-runner.sh
+```
+
+После регистрации runner работает как systemd service. Все следующие push в `main` будут деплоиться без SSH.
 
 ## Важно для установки PWA
 
