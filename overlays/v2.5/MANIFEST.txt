@@ -1,0 +1,17 @@
+Owner Property Management PWA — v2.5 Production Start
+
+Release version: 2.5.0
+Purpose: one-time transition from demo/test operation to real production use.
+
+production-clean-start.js SHA-256:
+f88bcf8b99feec94b69538e1538ab32dd03f2852d24327d9c9a6e01b00149090
+
+Behavior on first production startup:
+- creates a safety snapshot of current state and SQLite database when available;
+- preserves the owner account, password hash, TOTP state and recovery data;
+- clears buildings, tenants, issues, equipment, metrics, expenses, inspections, plans, routing rules and notifications;
+- removes non-owner users and test operational photos;
+- writes a persistent productionCleanStartAt marker so cleanup never repeats automatically;
+- logs the clean-start event into the new audit chain.
+
+The cleanup is disabled outside NODE_ENV=production.
