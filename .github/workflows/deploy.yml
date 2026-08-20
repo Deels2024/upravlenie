@@ -15,142 +15,54 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, upravlenie-prod]
     timeout-minutes: 20
     steps:
-      - name: Configure deployment key
-        id: configure
-        env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-        run: |
-          set -euo pipefail
-          test -n "$DEPLOY_SSH_KEY"
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-
-      - name: Discover SSH port
-        id: ssh_port
-        shell: bash
-        run: |
-          set -euo pipefail
-          host=5.183.191.139
-          ports=(22 2222 2200 2022 8022 22022 10022)
-          for port in "${ports[@]}"; do
-            banner="$(timeout 6 bash -c "exec 3<>/dev/tcp/${host}/${port}; IFS= read -r -t 5 line <&3; printf '%s' \"\$line\"" 2>/dev/null || true)"
-            printf 'Port %s banner: %s\n' "$port" "${banner:-none}"
-            if [[ "$banner" == SSH-* ]]; then
-              echo "port=$port" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          done
-          echo 'No SSH banner found on candidate ports.' >&2
-          exit 1
-
-      - name: Configure known host
-        if: steps.ssh_port.outcome == 'success'
-        env:
-          SSH_PORT: ${{ steps.ssh_port.outputs.port }}
-        run: |
-          set -euo pipefail
-          key='ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBL2znjGx+xsElDocnV/OCsk5UTosfxnzC79N0h8Apod7F8y/Gpxe6d8uE2/IsXSSVbqh98RlWbYImrF/LV/N2vI='
-          if [[ "$SSH_PORT" == '22' ]]; then
-            printf '5.183.191.139 %s\n' "$key" > ~/.ssh/known_hosts
-          else
-            printf '[5.183.191.139]:%s %s\n' "$SSH_PORT" "$key" > ~/.ssh/known_hosts
-          fi
-
-      - name: Deploy Owner Property v2.6
+      - name: Deploy Owner Property v2.6 locally
         id: deploy
-        if: steps.ssh_port.outcome == 'success'
-        env:
-          SSH_PORT: ${{ steps.ssh_port.outputs.port }}
         shell: bash
         run: |
           set -euo pipefail
-          ssh \
-            -p "$SSH_PORT" \
-            -o IdentitiesOnly=yes \
-            -o BatchMode=yes \
-            -o ConnectTimeout=15 \
-            -o ServerAliveInterval=15 \
-            -o ServerAliveCountMax=4 \
-            root@5.183.191.139 'bash -s' <<'REMOTE'
-          set -euo pipefail
-          repo_dir=""
-          while IFS= read -r gitdir; do
-            dir="${gitdir%/.git}"
-            remote="$(git -C "$dir" remote get-url origin 2>/dev/null || true)"
-            case "$remote" in
-              *Deels2024/upravlenie*) repo_dir="$dir"; break ;;
-            esac
-          done < <(find /root /opt /srv /var/www /home -maxdepth 5 -type d -name .git 2>/dev/null)
+          sudo /usr/local/sbin/deploy-upravlenie
 
-          if [ -z "$repo_dir" ]; then
-            echo 'Repository Deels2024/upravlenie was not found on the server.' >&2
-            exit 1
-          fi
-
-          echo "Deploying from $repo_dir"
-          cd "$repo_dir"
-          git fetch origin main
-          git checkout main
-          git pull --ff-only origin main
-          chmod +x install.sh install-v2.4.sh install-v2.5.sh install-v2.6.sh 2>/dev/null || true
-          sudo ./install.sh
-
-          for attempt in $(seq 1 20); do
-            body="$(curl --silent --show-error --max-time 10 http://127.0.0.1:8787/healthz || true)"
-            if printf '%s' "$body" | grep -q '"version":"2.6.0"'; then
-              echo "Local healthcheck passed: $body"
-              exit 0
-            fi
-            echo "Local health attempt $attempt/20: ${body:-unavailable}"
-            sleep 3
-          done
-
-          echo 'Local healthcheck did not reach v2.6.0.' >&2
-          exit 1
-          REMOTE
-
-      - name: Verify public endpoint
-        id: verify
+      - name: Verify local endpoint
+        id: verify_local
         if: steps.deploy.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in {1..20}; do
-            body="$(curl --silent --show-error --max-time 10 http://5.183.191.139:8787/healthz || true)"
-            if printf '%s' "$body" | grep -q '"version":"2.6.0"'; then
-              printf 'Public deployment is healthy: %s\n' "$body"
-              exit 0
-            fi
-            printf 'Attempt %s/20: %s\n' "$attempt" "${body:-unavailable}"
-            sleep 3
-          done
-          printf 'Public deployment did not become healthy.\n' >&2
-          exit 1
+          body="$(curl --silent --show-error --fail --max-time 15 http://127.0.0.1:8787/healthz)"
+          printf '%s' "$body" | grep -q '"version":"2.6.0"'
+          printf 'Local deployment is healthy: %s\n' "$body"
+
+      - name: Verify public endpoint
+        id: verify_public
+        if: steps.deploy.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          body="$(curl --silent --show-error --fail --max-time 15 http://5.183.191.139:8787/healthz)"
+          printf '%s' "$body" | grep -q '"version":"2.6.0"'
+          printf 'Public deployment is healthy: %s\n' "$body"
 
       - name: Report deployment status
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
-          CONFIGURE_OUTCOME: ${{ steps.configure.outcome }}
-          PORT_OUTCOME: ${{ steps.ssh_port.outcome }}
-          SSH_PORT: ${{ steps.ssh_port.outputs.port }}
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
-          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          LOCAL_OUTCOME: ${{ steps.verify_local.outcome }}
+          PUBLIC_OUTCOME: ${{ steps.verify_public.outcome }}
+        shell: bash
         run: |
           set -euo pipefail
           body=$(cat <<EOF
           ## Production deployment status
 
           - Commit: ${GITHUB_SHA}
-          - Configure SSH key: **${CONFIGURE_OUTCOME}**
-          - Discover SSH port: **${PORT_OUTCOME}**
-          - SSH port: ${SSH_PORT:-not-found}
+          - Runner: self-hosted / upravlenie-prod
           - Deploy on server: **${DEPLOY_OUTCOME}**
-          - Public healthcheck: **${VERIFY_OUTCOME}**
+          - Local healthcheck: **${LOCAL_OUTCOME}**
+          - Public healthcheck: **${PUBLIC_OUTCOME}**
           - Expected version: 2.6.0
           - Target: 5.183.191.139:8787
           - Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
