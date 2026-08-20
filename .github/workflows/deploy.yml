@@ -1,0 +1,96 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [Owner Property CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-upravlenie
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Configure deployment key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_SSH_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' '5.183.191.139 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBL2znjGx+xsElDocnV/OCsk5UTosfxnzC79N0h8Apod7F8y/Gpxe6d8uE2/IsXSSVbqh98RlWbYImrF/LV/N2vI=' > ~/.ssh/known_hosts
+
+      - name: Deploy Owner Property v2.4
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=4 \
+            root@5.183.191.139 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          repo_dir=""
+          while IFS= read -r gitdir; do
+            dir="${gitdir%/.git}"
+            remote="$(git -C "$dir" remote get-url origin 2>/dev/null || true)"
+            case "$remote" in
+              *Deels2024/upravlenie*) repo_dir="$dir"; break ;;
+            esac
+          done < <(find /root /opt /srv /var/www /home -maxdepth 5 -type d -name .git 2>/dev/null)
+
+          if [ -z "$repo_dir" ]; then
+            echo 'Repository Deels2024/upravlenie was not found on the server.' >&2
+            exit 1
+          fi
+
+          echo "Deploying from $repo_dir"
+          cd "$repo_dir"
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+          chmod +x install.sh install-v2.4.sh 2>/dev/null || true
+          sudo ./install.sh
+
+          for attempt in $(seq 1 20); do
+            body="$(curl --silent --show-error --max-time 10 http://127.0.0.1:8787/healthz || true)"
+            if printf '%s' "$body" | grep -q '"version":"2.4.0"'; then
+              echo "Local healthcheck passed: $body"
+              exit 0
+            fi
+            echo "Local health attempt $attempt/20: ${body:-unavailable}"
+            sleep 3
+          done
+
+          echo 'Local healthcheck did not reach v2.4.0.' >&2
+          exit 1
+          REMOTE
+
+      - name: Verify public endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..20}; do
+            body="$(curl --silent --show-error --max-time 10 http://5.183.191.139:8787/healthz || true)"
+            if printf '%s' "$body" | grep -q '"version":"2.4.0"'; then
+              printf 'Public deployment is healthy: %s\n' "$body"
+              exit 0
+            fi
+            printf 'Attempt %s/20: %s\n' "$attempt" "${body:-unavailable}"
+            sleep 3
+          done
+          printf 'Public deployment did not become healthy.\n' >&2
+          exit 1
