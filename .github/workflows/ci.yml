@@ -20,6 +20,7 @@ jobs:
           bash -n ./install.sh
           bash -n ./install-v2.4.sh
           bash -n ./install-v2.5.sh
+          bash -n ./install-v2.6.sh
       - name: Verify production release modules
         env:
           VERIFY_ONLY: '1'
@@ -32,5 +33,9 @@ jobs:
           node --check overlays/v2.4/v24-followups.js
           node --check overlays/v2.4/v24-notifications.js
           node --check overlays/v2.5/production-clean-start.js
+          node --check overlays/v2.6/pwa-mobile.js
+          node --check overlays/v2.6/sw.js
           grep -q 'productionCleanStartAt' overlays/v2.5/production-clean-start.js
-          grep -q 'state-before-cleanup.json' overlays/v2.5/production-clean-start.js
+          grep -q '"display":"standalone"' overlays/v2.6/manifest.webmanifest
+          grep -q 'owner-property-shell-v26-mobile' overlays/v2.6/sw.js
+          grep -q 'pwaMore' overlays/v2.6/pwa-mobile.js
