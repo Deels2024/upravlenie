@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec bash "$DIR/install-v2.5.sh"
+exec bash "$DIR/install-v2.6.sh"
