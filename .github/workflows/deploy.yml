@@ -28,14 +28,48 @@ jobs:
           install -m 700 -d ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' '5.183.191.139 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBL2znjGx+xsElDocnV/OCsk5UTosfxnzC79N0h8Apod7F8y/Gpxe6d8uE2/IsXSSVbqh98RlWbYImrF/LV/N2vI=' > ~/.ssh/known_hosts
+
+      - name: Discover SSH port
+        id: ssh_port
+        shell: bash
+        run: |
+          set -euo pipefail
+          host=5.183.191.139
+          ports=(22 2222 2200 2022 8022 22022 10022)
+          for port in "${ports[@]}"; do
+            banner="$(timeout 6 bash -c "exec 3<>/dev/tcp/${host}/${port}; IFS= read -r -t 5 line <&3; printf '%s' \"\$line\"" 2>/dev/null || true)"
+            printf 'Port %s banner: %s\n' "$port" "${banner:-none}"
+            if [[ "$banner" == SSH-* ]]; then
+              echo "port=$port" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo 'No SSH banner found on candidate ports.' >&2
+          exit 1
+
+      - name: Configure known host
+        if: steps.ssh_port.outcome == 'success'
+        env:
+          SSH_PORT: ${{ steps.ssh_port.outputs.port }}
+        run: |
+          set -euo pipefail
+          key='ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBL2znjGx+xsElDocnV/OCsk5UTosfxnzC79N0h8Apod7F8y/Gpxe6d8uE2/IsXSSVbqh98RlWbYImrF/LV/N2vI='
+          if [[ "$SSH_PORT" == '22' ]]; then
+            printf '5.183.191.139 %s\n' "$key" > ~/.ssh/known_hosts
+          else
+            printf '[5.183.191.139]:%s %s\n' "$SSH_PORT" "$key" > ~/.ssh/known_hosts
+          fi
 
       - name: Deploy Owner Property v2.6
         id: deploy
+        if: steps.ssh_port.outcome == 'success'
+        env:
+          SSH_PORT: ${{ steps.ssh_port.outputs.port }}
         shell: bash
         run: |
           set -euo pipefail
           ssh \
+            -p "$SSH_PORT" \
             -o IdentitiesOnly=yes \
             -o BatchMode=yes \
             -o ConnectTimeout=15 \
@@ -81,6 +115,7 @@ jobs:
 
       - name: Verify public endpoint
         id: verify
+        if: steps.deploy.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -101,6 +136,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CONFIGURE_OUTCOME: ${{ steps.configure.outcome }}
+          PORT_OUTCOME: ${{ steps.ssh_port.outcome }}
+          SSH_PORT: ${{ steps.ssh_port.outputs.port }}
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
         run: |
@@ -108,12 +145,14 @@ jobs:
           body=$(cat <<EOF
           ## Production deployment status
 
-          - Commit: `${GITHUB_SHA}`
+          - Commit: ${GITHUB_SHA}
           - Configure SSH key: **${CONFIGURE_OUTCOME}**
+          - Discover SSH port: **${PORT_OUTCOME}**
+          - SSH port: ${SSH_PORT:-not-found}
           - Deploy on server: **${DEPLOY_OUTCOME}**
           - Public healthcheck: **${VERIFY_OUTCOME}**
-          - Expected version: `2.6.0`
-          - Target: `5.183.191.139:8787`
+          - Expected version: 2.6.0
+          - Target: 5.183.191.139:8787
           - Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
           )
