@@ -1,0 +1,11 @@
+{
+  "name": "owner-property-pwa",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Owner Property v3 clean — закрытая PWA для управления коммерческой недвижимостью",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check src/config.js && node --check public/app.js && node --check scripts/backup.js && node --check tests/smoke.js",
+    "test": "node tests/smoke.js"
+  }
+}

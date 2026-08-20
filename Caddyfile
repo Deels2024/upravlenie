@@ -1,0 +1,13 @@
+:80 {
+    encode zstd gzip
+    request_body {
+        max_size 30MB
+    }
+    reverse_proxy app:8787
+    header {
+        -Server
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy no-referrer
+    }
+}

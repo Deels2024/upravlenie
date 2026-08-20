@@ -1,0 +1,8 @@
+.git
+.env
+*.zip
+backups
+private_uploads
+data/*.db
+data/*.db-*
+node_modules
