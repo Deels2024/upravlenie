@@ -51,7 +51,10 @@ jobs:
           npm run check
           npm test
           test "$(node -p "require('./package.json').version")" = "3.0.0"
-          ! grep -RInE '@local|Demo!|demo-box|Ленинский 136|Московский 114|Магнит' server.js src public data tests || false
+          if grep -RInE '@local|Demo!|demo-box|Ленинский 136|Московский 114|Магнит' server.js src public data tests; then
+            echo "Legacy demo data found"
+            exit 1
+          fi
           test -z "$(find . -maxdepth 2 \( -name 'baseline-*' -o -name overlays -o -name patches -o -name '*.b64' \) -print)"
 
       - name: Publish ordinary clean source tree
@@ -64,6 +67,10 @@ jobs:
           git rm -rf . >/dev/null 2>&1 || true
           git clean -fdx >/dev/null 2>&1 || true
           cp -a /tmp/v3-clean/. .
+          # GITHUB_TOKEN cannot push workflow-file changes from this job.
+          # Publish the verified application tree first; CI is added immediately
+          # afterwards through the GitHub contents API.
+          rm -rf .github
           test ! -d .v3-upload
           test ! -d .v3-upload-v2
           git add -A
