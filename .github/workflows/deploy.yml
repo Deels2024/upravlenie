@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: production-upravlenie
@@ -18,6 +19,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Configure deployment key
+        id: configure
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
@@ -29,6 +31,7 @@ jobs:
           printf '%s\n' '5.183.191.139 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBL2znjGx+xsElDocnV/OCsk5UTosfxnzC79N0h8Apod7F8y/Gpxe6d8uE2/IsXSSVbqh98RlWbYImrF/LV/N2vI=' > ~/.ssh/known_hosts
 
       - name: Deploy Owner Property v2.6
+        id: deploy
         shell: bash
         run: |
           set -euo pipefail
@@ -77,6 +80,7 @@ jobs:
           REMOTE
 
       - name: Verify public endpoint
+        id: verify
         shell: bash
         run: |
           set -euo pipefail
@@ -91,3 +95,26 @@ jobs:
           done
           printf 'Public deployment did not become healthy.\n' >&2
           exit 1
+
+      - name: Report deployment status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONFIGURE_OUTCOME: ${{ steps.configure.outcome }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+        run: |
+          set -euo pipefail
+          body=$(cat <<EOF
+          ## Production deployment status
+
+          - Commit: `${GITHUB_SHA}`
+          - Configure SSH key: **${CONFIGURE_OUTCOME}**
+          - Deploy on server: **${DEPLOY_OUTCOME}**
+          - Public healthcheck: **${VERIFY_OUTCOME}**
+          - Expected version: `2.6.0`
+          - Target: `5.183.191.139:8787`
+          - Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+          )
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/1" -f body="$body" >/dev/null
