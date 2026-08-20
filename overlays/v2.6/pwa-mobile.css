@@ -1,0 +1,34 @@
+:root{--pwa-bottom:0px}
+html{overscroll-behavior-y:none;-webkit-text-size-adjust:100%}
+body{-webkit-tap-highlight-color:transparent}
+button,a,input,select,textarea{touch-action:manipulation}
+.pwa-brand-mini{display:none}
+.pwa-more-sheet .modal-head small{display:block;color:var(--muted);margin-top:3px}.pwa-more-list{padding:8px 14px 18px}.pwa-more-row{width:100%;display:grid;grid-template-columns:42px 1fr auto;gap:12px;align-items:center;border:0;border-bottom:1px solid var(--line);background:transparent;text-align:left;color:inherit;padding:14px 4px;min-height:70px}.pwa-more-row>span:first-child{width:42px;height:42px;border-radius:13px;background:#f0f5fc;color:#176fe8;display:grid;place-items:center}.pwa-more-row .ui-icon{width:21px;height:21px}.pwa-more-row b{display:block;font-size:14px}.pwa-more-row small{display:block;margin-top:3px;color:var(--muted);font-size:11px}.pwa-more-row em{font-style:normal;font-size:24px;color:#9aa8ba}.pwa-more-row.active{background:#f5f9ff}.pwa-more-row.install>span:first-child{background:#eaf8f1;color:#23865a}.pwa-ios-hint{margin:12px 0 0;padding:13px 14px;border-radius:14px;background:#f6f8fb;border:1px solid var(--line)}.pwa-ios-hint b,.pwa-ios-hint span{display:block}.pwa-ios-hint span{font-size:11px;color:var(--muted);margin-top:4px}
+@media(max-width:800px){
+  :root{--pwa-bottom:calc(68px + env(safe-area-inset-bottom))}
+  html,body{min-height:100%;background:var(--bg)}
+  body{padding-top:env(safe-area-inset-top)}
+  .topbar{top:env(safe-area-inset-top);height:60px!important;padding:0 12px!important;gap:8px}
+  .pwa-brand-mini{display:grid;width:34px;height:34px;border-radius:10px;place-items:center;background:linear-gradient(135deg,#0b7cff,#18afea);color:#fff;font-weight:900;font-size:11px;flex:0 0 auto}
+  .topbar h1{font-size:17px!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+  .top-actions{gap:5px}.top-actions .icon-btn{width:38px;height:38px;border-radius:11px}.top-actions .btn{min-height:38px;padding:8px 10px}
+  .content{padding:14px 12px calc(var(--pwa-bottom) + 18px)!important}
+  .mobile-nav{height:auto;grid-template-columns:repeat(5,minmax(0,1fr))!important;padding:6px max(5px,env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) max(5px,env(safe-area-inset-left))!important;background:rgba(255,255,255,.97)!important;box-shadow:0 -10px 32px rgba(29,48,75,.11)!important;z-index:90!important}
+  .mobile-nav button{min-width:0;min-height:50px;padding:5px 1px!important;border-radius:11px!important;font-size:9.5px!important;font-weight:700;line-height:1.05}
+  .mobile-nav button.active{background:#eef6ff!important}.mobile-nav .ui-icon{width:21px!important;height:21px!important}
+  .subhead{gap:12px}.subhead h2{font-size:24px!important}.subhead p{font-size:12px;line-height:1.45}
+  .btn{min-height:46px}.icon-btn{min-width:42px;min-height:42px}.link-btn{min-height:40px}
+  .field input,.field select,.field textarea{font-size:16px!important;min-height:48px!important;border-radius:12px}.field textarea{min-height:112px!important}
+  input[type=file]{padding:10px!important;min-height:48px}
+  .modal-backdrop{align-items:flex-end!important;padding:0!important;background:rgba(18,29,45,.34)!important}
+  .modal{width:100%!important;max-height:calc(94dvh - env(safe-area-inset-top))!important;border-radius:22px 22px 0 0!important;border-left:0!important;border-right:0!important;border-bottom:0!important;padding-bottom:env(safe-area-inset-bottom)}
+  .modal-head{position:sticky;top:0;background:#fff;z-index:3;padding:15px 16px!important}.modal-body{padding:15px 16px!important}.modal-actions{position:sticky;bottom:0;background:#fff;z-index:3;padding:12px 16px calc(12px + env(safe-area-inset-bottom))!important;display:grid!important;grid-template-columns:1fr 1fr}.modal-actions .btn{width:100%}
+  .modal-actions .btn:only-child{grid-column:1/-1}
+  .form-grid{grid-template-columns:1fr!important}.form-grid .span2{grid-column:auto!important}
+  .property-card-actions,.tenant-work-actions,.staff-work-actions{gap:6px}.property-card-actions .link-btn,.tenant-work-actions .link-btn,.staff-work-actions .link-btn{padding:8px 10px}
+  .stats,.issue-summary,.calendar-summary{overflow-x:auto;display:flex!important;scroll-snap-type:x proximity;padding-bottom:4px}.stats>* ,.issue-summary>* ,.calendar-summary>*{min-width:145px;scroll-snap-align:start;flex:0 0 auto}
+  .calendar-card{overflow-x:auto}.calendar-grid,.calendar-weekdays{min-width:680px}
+  .toast{bottom:calc(var(--pwa-bottom) + 10px)!important}
+}
+@media(max-width:420px){.content{padding-left:10px!important;padding-right:10px!important}.modal-actions{grid-template-columns:1fr!important}.property-detail-grid,.tenant-kpis,.metric-summary-grid,.utility-stats{grid-template-columns:1fr!important}.detail-box.wide{grid-column:auto!important}.object-page-head .action-row,.issue-page-head .action-row{display:grid!important;grid-template-columns:1fr!important}.object-page-head .action-row .btn{width:100%}}
+@media(display-mode:standalone){body{user-select:none}.field input,.field textarea{user-select:text}.topbar{box-shadow:0 1px 0 rgba(30,49,74,.08)}.pwa-brand-mini{display:grid}}
