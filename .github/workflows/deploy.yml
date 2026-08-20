@@ -28,7 +28,7 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' '5.183.191.139 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBL2znjGx+xsElDocnV/OCsk5UTosfxnzC79N0h8Apod7F8y/Gpxe6d8uE2/IsXSSVbqh98RlWbYImrF/LV/N2vI=' > ~/.ssh/known_hosts
 
-      - name: Deploy Owner Property v2.5
+      - name: Deploy Owner Property v2.6
         shell: bash
         run: |
           set -euo pipefail
@@ -59,12 +59,12 @@ jobs:
           git fetch origin main
           git checkout main
           git pull --ff-only origin main
-          chmod +x install.sh install-v2.4.sh install-v2.5.sh 2>/dev/null || true
+          chmod +x install.sh install-v2.4.sh install-v2.5.sh install-v2.6.sh 2>/dev/null || true
           sudo ./install.sh
 
           for attempt in $(seq 1 20); do
             body="$(curl --silent --show-error --max-time 10 http://127.0.0.1:8787/healthz || true)"
-            if printf '%s' "$body" | grep -q '"version":"2.5.0"'; then
+            if printf '%s' "$body" | grep -q '"version":"2.6.0"'; then
               echo "Local healthcheck passed: $body"
               exit 0
             fi
@@ -72,7 +72,7 @@ jobs:
             sleep 3
           done
 
-          echo 'Local healthcheck did not reach v2.5.0.' >&2
+          echo 'Local healthcheck did not reach v2.6.0.' >&2
           exit 1
           REMOTE
 
@@ -82,7 +82,7 @@ jobs:
           set -euo pipefail
           for attempt in {1..20}; do
             body="$(curl --silent --show-error --max-time 10 http://5.183.191.139:8787/healthz || true)"
-            if printf '%s' "$body" | grep -q '"version":"2.5.0"'; then
+            if printf '%s' "$body" | grep -q '"version":"2.6.0"'; then
               printf 'Public deployment is healthy: %s\n' "$body"
               exit 0
             fi
