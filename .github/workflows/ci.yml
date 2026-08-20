@@ -21,6 +21,7 @@ jobs:
           bash -n ./install-v2.4.sh
           bash -n ./install-v2.5.sh
           bash -n ./install-v2.6.sh
+          bash -n ./ops/setup-self-hosted-runner.sh
       - name: Verify production release modules
         env:
           VERIFY_ONLY: '1'
@@ -39,3 +40,4 @@ jobs:
           grep -q '"display":"standalone"' overlays/v2.6/manifest.webmanifest
           grep -q 'owner-property-shell-v26-mobile' overlays/v2.6/sw.js
           grep -q 'pwaMore' overlays/v2.6/pwa-mobile.js
+          grep -q 'upravlenie-prod' .github/workflows/deploy.yml
