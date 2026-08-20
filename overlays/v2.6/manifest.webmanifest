@@ -1,0 +1,20 @@
+{
+  "id":"/",
+  "name":"Owner Property — управление объектами",
+  "short_name":"Owner Property",
+  "description":"Закрытая система владельца для объектов, арендаторов, осмотров, проблем, оборудования и расходов.",
+  "lang":"ru",
+  "dir":"ltr",
+  "start_url":"/",
+  "scope":"/",
+  "display":"standalone",
+  "display_override":["standalone","minimal-ui"],
+  "orientation":"any",
+  "background_color":"#f5f8fc",
+  "theme_color":"#ffffff",
+  "categories":["business","productivity"],
+  "icons":[
+    {"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"},
+    {"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"maskable"}
+  ]
+}
