@@ -19,7 +19,8 @@ jobs:
         run: |
           bash -n ./install.sh
           bash -n ./install-v2.4.sh
-      - name: Verify v2.4 release modules
+          bash -n ./install-v2.5.sh
+      - name: Verify production release modules
         env:
           VERIFY_ONLY: '1'
         run: bash ./install.sh
@@ -30,5 +31,6 @@ jobs:
           node --check overlays/v2.4/v24-offline.js
           node --check overlays/v2.4/v24-followups.js
           node --check overlays/v2.4/v24-notifications.js
-          grep -q 'Release version: 2.4.0' overlays/v2.4/MANIFEST.txt
-          grep -q 'v2.4' README.md
+          node --check overlays/v2.5/production-clean-start.js
+          grep -q 'productionCleanStartAt' overlays/v2.5/production-clean-start.js
+          grep -q 'state-before-cleanup.json' overlays/v2.5/production-clean-start.js
