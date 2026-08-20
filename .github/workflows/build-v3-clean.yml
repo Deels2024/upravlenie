@@ -1,0 +1,70 @@
+name: Build Owner Property v3 clean branch
+
+on:
+  push:
+    branches: ["recovery/v3-bootstrap"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-clean-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout recovery transport
+        uses: actions/checkout@v4
+        with:
+          ref: recovery/v3-bootstrap
+          fetch-depth: 0
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Reassemble and verify v3-clean source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find .v3-recovery -maxdepth 1 -type f -name 'part-*.b64' | wc -l)" -eq 9
+          cat $(find .v3-recovery -maxdepth 1 -type f -name 'part-*.b64' | sort) | tr -d '\r\n' | base64 -d > /tmp/v3-clean.tar.xz
+          echo "3a7dbff663371a2b83b0b07b4a09fbf2c666ea27b331622c87145b993dee397e  /tmp/v3-clean.tar.xz" | sha256sum -c -
+          rm -rf /tmp/v3-clean
+          mkdir -p /tmp/v3-clean
+          tar -xJf /tmp/v3-clean.tar.xz -C /tmp/v3-clean
+          test -f /tmp/v3-clean/server.js
+          test -f /tmp/v3-clean/package.json
+          test -d /tmp/v3-clean/src
+          test -d /tmp/v3-clean/public
+          test ! -d /tmp/v3-clean/overlays
+          test ! -d /tmp/v3-clean/patches
+          ! find /tmp/v3-clean -type f -name '*.b64' -print -quit | grep -q .
+
+      - name: Verify source and PWA
+        working-directory: /tmp/v3-clean
+        run: npm run check
+
+      - name: Functional smoke test
+        working-directory: /tmp/v3-clean
+        run: npm run smoke
+
+      - name: Production security smoke test
+        working-directory: /tmp/v3-clean
+        run: npm run smoke:production
+
+      - name: Publish clean source branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/v3-clean
+          git init -b recovery/v3-clean
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          test -z "$(git status --porcelain | grep -E '(^|/)(overlays|patches|baseline-|\.v3-recovery)|\.b64$' || true)"
+          git commit -m "Build clean Owner Property v3.0 baseline"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin HEAD:refs/heads/recovery/v3-clean
