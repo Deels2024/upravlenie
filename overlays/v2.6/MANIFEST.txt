@@ -1,0 +1,18 @@
+Owner Property v2.6 Mobile PWA
+Release version: 2.6.0
+
+Files and SHA-256:
+cb4a9c7c00bd824e5b1c6ca7f77d3f0bbac7a937cfe4d13a0ddc26c8b856229b  pwa-mobile.js
+76d9d67d566e9139a8efa29622a6ac7cb7144dc5e27766c4fdd2b13a7213e0da  pwa-mobile.css
+318971ddd071efd2268a14186cfd5918578f52c311ff6d74feddf53c57cbd097  manifest.webmanifest
+575914e7a2afcae68fcb9f6cd6c19bd05370a07a71f380b90dd00b22d13e0462  sw.js
+
+Mobile PWA scope:
+- standalone manifest and app metadata;
+- safe-area aware iPhone/Android shell;
+- five-slot bottom navigation with a complete “Ещё” menu;
+- install prompt handling plus iOS install guidance;
+- mobile bottom-sheet modals and larger touch targets;
+- service worker caches only application shell/static assets;
+- /api and private issue/inspection media are never cached by the service worker;
+- v2.5 production clean-start remains preserved and idempotent.
