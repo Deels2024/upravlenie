@@ -1,0 +1,129 @@
+name: Deploy recovery v3 clean
+
+on:
+  push:
+    branches:
+      - recovery/v3-clean
+  workflow_dispatch:
+
+concurrency:
+  group: upravlenie-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare release archive
+        run: tar --exclude=.git --exclude=.github -czf /tmp/upravlenie-release.tar.gz .
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          timeout 20 ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload release
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" /tmp/upravlenie-release.tar.gz "$DEPLOY_USER@$DEPLOY_HOST:/tmp/upravlenie-release.tar.gz"
+
+      - name: Build and switch service
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          install -d /opt/upravlenie-v3
+          find /opt/upravlenie-v3 -mindepth 1 -maxdepth 1 ! -name .env -exec rm -rf -- {} +
+          tar -xzf /tmp/upravlenie-release.tar.gz -C /opt/upravlenie-v3
+
+          if [ -f /opt/property-owner-pwa/.env ]; then
+            cp /opt/property-owner-pwa/.env /opt/upravlenie-v3/.env
+          else
+            touch /opt/upravlenie-v3/.env
+          fi
+          grep -q '^OWNER_LOGIN=' /opt/upravlenie-v3/.env || printf '\nOWNER_LOGIN=owner@local\n' >> /opt/upravlenie-v3/.env
+
+          current_image="$(docker inspect property-owner-app-1 --format '{{.Config.Image}}' 2>/dev/null || true)"
+          [ -n "$current_image" ] || current_image="property-owner-app"
+
+          cat > /opt/upravlenie-v3/Dockerfile.production <<EOF
+          FROM $current_image
+          USER root
+          WORKDIR /app
+          RUN rm -rf /app/public /app/src /app/scripts /app/tests /app/server.js /app/package.json
+          COPY --chown=app:app package.json server.js ./
+          COPY --chown=app:app src ./src
+          COPY --chown=app:app public ./public
+          COPY --chown=app:app scripts ./scripts
+          COPY --chown=app:app tests ./tests
+          COPY --chown=app:app data/app-data.json ./data/app-data.json
+          RUN mkdir -p /app/data /app/private_uploads && chown -R app:app /app
+          USER app
+          EXPOSE 8787
+          HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD node -e "fetch('http://127.0.0.1:8787/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+          CMD ["node","--no-warnings","server.js"]
+          EOF
+
+          docker build --pull=false -f /opt/upravlenie-v3/Dockerfile.production -t upravlenie-v3-app:local /opt/upravlenie-v3
+
+          cat > /opt/upravlenie-v3/docker-compose.production.yml <<'EOF'
+          services:
+            app:
+              image: upravlenie-v3-app:local
+              restart: unless-stopped
+              env_file: .env
+              environment:
+                PORT: 8787
+                HOST: 0.0.0.0
+                DATA_DIR: /app/data
+                UPLOAD_DIR: /app/private_uploads
+              ports:
+                - "8787:8787"
+              volumes:
+                - property-owner_app_data:/app/data
+                - property-owner_app_uploads:/app/private_uploads
+              read_only: true
+              tmpfs:
+                - /tmp
+              security_opt:
+                - no-new-privileges:true
+          volumes:
+            property-owner_app_data:
+              external: true
+            property-owner_app_uploads:
+              external: true
+          EOF
+
+          docker compose -p property-owner -f /opt/property-owner-pwa/docker-compose.ip.yml down
+          if ! docker compose -p upravlenie-v3 -f /opt/upravlenie-v3/docker-compose.production.yml up -d --no-build; then
+            docker compose -p property-owner -f /opt/property-owner-pwa/docker-compose.ip.yml up -d
+            exit 1
+          fi
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/healthz | grep -q '"version":"3.0.0"'; then
+              rm -f /tmp/upravlenie-release.tar.gz
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker compose -p upravlenie-v3 -f /opt/upravlenie-v3/docker-compose.production.yml down
+          docker compose -p property-owner -f /opt/property-owner-pwa/docker-compose.ip.yml up -d
+          exit 1
+          REMOTE
