@@ -75,12 +75,12 @@ function dateOnly(v=nowIso()){ return String(v).slice(0,10); }
 function addDaysIso(v,days){ const d=new Date(v); d.setDate(d.getDate()+Number(days||0)); return d.toISOString().slice(0,10); }
 function logSecurity(actor,event){
   if(!Array.isArray(db.securityLog)) db.securityLog=[];
-  db.securityLog.unshift({at:nowIso().replace('T',' ').slice(0,16),actor:String(actor||'Система').slice(0,100),event:String(event||'').slice(0,220)});
+  db.securityLog.unshift({at:nowIso().replace('T',' ').slice(0,16),actor:String(actor||'Ð¡Ð¸ÑÑÐµÐ¼Ð°').slice(0,100),event:String(event||'').slice(0,220)});
   db.securityLog=db.securityLog.slice(0,300);
 }
 function notifyUser(userId,title,text,meta={}){
   const u=findUser(userId);if(!u||u.active===false)return;
-  db.notifications.unshift({id:'n'+crypto.randomBytes(5).toString('hex'),userId:u.id,title:String(title||'Уведомление').slice(0,120),text:String(text||'').slice(0,300),at:nowIso(),readAt:'',issueId:meta.issueId||'',buildingId:meta.buildingId||'',inspectionId:meta.inspectionId||''});
+  db.notifications.unshift({id:'n'+crypto.randomBytes(5).toString('hex'),userId:u.id,title:String(title||'Ð£Ð²ÐµÐ´Ð¾Ð¼Ð»ÐµÐ½Ð¸Ðµ').slice(0,120),text:String(text||'').slice(0,300),at:nowIso(),readAt:'',issueId:meta.issueId||'',buildingId:meta.buildingId||'',inspectionId:meta.inspectionId||''});
   db.notifications=db.notifications.slice(0,1000);
 }
 function uniqueStrings(arr,allowed=null){
@@ -122,7 +122,7 @@ function ensureDataShape(){
   let owner=db.users.find(u=>u.role==='owner')||db.users.find(u=>u.id==='u-owner');
   if(!owner){
     if(!OWNER_PASSWORD) throw new Error('Startup refused: OWNER_PASSWORD environment variable is required for first start');
-    owner=createStoredUser('u-owner','owner',OWNER_LOGIN,OWNER_PASSWORD,{name:'Собственник',permissions:['*'],buildingIds:db.buildings.filter(b=>!b.archivedAt).map(b=>b.id)});
+    owner=createStoredUser('u-owner','owner',OWNER_LOGIN,OWNER_PASSWORD,{name:'Ð¡Ð¾Ð±ÑÑÐ²ÐµÐ½Ð½Ð¸Ðº',permissions:['*'],buildingIds:db.buildings.filter(b=>!b.archivedAt).map(b=>b.id)});
     db.users.push(owner);
   }
   owner.id=owner.id||'u-owner';owner.role='owner';owner.email=OWNER_LOGIN;owner.active=true;owner.permissions=['*'];
@@ -246,7 +246,7 @@ function createIssueFromPayload(payload,actorUser,options={}){
   const tenant=tenantId?db.tenants.find(t=>t.id===tenantId):null;
   const buildingId=payload.buildingId || tenant?.buildingId;
   if(!buildingId || !String(payload.title||'').trim()) throw new Error('REQUIRED_FIELDS');
-  const category=String(payload.category||'Другое').slice(0,60);
+  const category=String(payload.category||'ÐÑÑÐ³Ð¾Ðµ').slice(0,60);
   let responsible=findUser(payload.responsibleUserId);
   if(!responsible && payload.responsible){ responsible=db.users.find(u=>u.name===payload.responsible&&u.active!==false); }
   if(!responsible) responsible=routeUser(buildingId,category);
@@ -255,13 +255,13 @@ function createIssueFromPayload(payload,actorUser,options={}){
   const item=ensureIssueShape({
     id:'i'+crypto.randomBytes(4).toString('hex'),buildingId,tenantId,title:String(payload.title).trim().slice(0,160),category,
     priority:['low','normal','high','critical'].includes(payload.priority)?payload.priority:'normal',
-    status:payload.status|| (responsible?'assigned':'new'),reporter:String(payload.reporter||actorUser?.name||'Система').slice(0,80),
+    status:payload.status|| (responsible?'assigned':'new'),reporter:String(payload.reporter||actorUser?.name||'Ð¡Ð¸ÑÑÐµÐ¼Ð°').slice(0,80),
     curator:curator?.name||String(payload.curator||'').slice(0,80),curatorUserId:curator?.id||'',
     responsible:responsible?.name||String(payload.responsible||'').slice(0,80),responsibleUserId:responsible?.id||'',executor:String(payload.executor||'').slice(0,80),
     due:String(payload.due||''),created:createdAt.slice(0,10),createdAt,cost:Number(payload.cost||0),result:'',sourceInspectionId:options.sourceInspectionId||'',
-    timeline:[{at:createdAt,actor:actorUser?.name||'Система',text:options.sourceInspectionId?'Проблема создана автоматически из осмотра':'Заявка создана'}]
+    timeline:[{at:createdAt,actor:actorUser?.name||'Ð¡Ð¸ÑÑÐµÐ¼Ð°',text:options.sourceInspectionId?'ÐÑÐ¾Ð±Ð»ÐµÐ¼Ð° ÑÐ¾Ð·Ð´Ð°Ð½Ð° Ð°Ð²ÑÐ¾Ð¼Ð°ÑÐ¸ÑÐµÑÐºÐ¸ Ð¸Ð· Ð¾ÑÐ¼Ð¾ÑÑÐ°':'ÐÐ°ÑÐ²ÐºÐ° ÑÐ¾Ð·Ð´Ð°Ð½Ð°'}]
   });
-  if(responsible){item.timeline.push({at:createdAt,actor:'Система',text:`Автоматически назначен ответственный: ${responsible.name}`});notifyUser(responsible.id,'Новая проблема назначена вам',item.title,{issueId:item.id,buildingId:item.buildingId});}
+  if(responsible){item.timeline.push({at:createdAt,actor:'Ð¡Ð¸ÑÑÐµÐ¼Ð°',text:`ÐÐ²ÑÐ¾Ð¼Ð°ÑÐ¸ÑÐµÑÐºÐ¸ Ð½Ð°Ð·Ð½Ð°ÑÐµÐ½ Ð¾ÑÐ²ÐµÑÑÑÐ²ÐµÐ½Ð½ÑÐ¹: ${responsible.name}`});notifyUser(responsible.id,'ÐÐ¾Ð²Ð°Ñ Ð¿ÑÐ¾Ð±Ð»ÐµÐ¼Ð° Ð½Ð°Ð·Ð½Ð°ÑÐµÐ½Ð° Ð²Ð°Ð¼',item.title,{issueId:item.id,buildingId:item.buildingId});}
   db.issues.unshift(item); return item;
 }
 
@@ -288,7 +288,8 @@ function secHeaders(res){
 function serveStatic(req,res,urlPath){
   let rel=urlPath==='/'?'/index.html':urlPath;rel=rel.split('?')[0];const file=path.normalize(path.join(PUBLIC_DIR,rel));
   if(!file.startsWith(PUBLIC_DIR))return text(res,403,'Forbidden');
-  fs.readFile(file,(err,data)=>{if(err)return text(res,404,'Not found');const ext=path.extname(file).toLowerCase();const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json; charset=utf-8','.svg':'image/svg+xml'};const noStore=rel.endsWith('index.html')||rel.endsWith('sw.js');res.writeHead(200,{'Content-Type':types[ext]||'application/octet-stream','Cache-Control':noStore?'no-store':'public, max-age=3600'});res.end(data);});
+  let data;try{data=fs.readFileSync(file);}catch{return text(res,404,'Not found');}
+  const ext=path.extname(file).toLowerCase();const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json; charset=utf-8','.svg':'image/svg+xml'};const noStore=rel.endsWith('index.html')||rel.endsWith('sw.js');res.writeHead(200,{'Content-Type':types[ext]||'application/octet-stream','Cache-Control':noStore?'no-store':'public, max-age=3600'});res.end(data);
 }
 function terminateUserSessions(userId){for(const [sid,s] of sessions)if(s.userId===userId)sessions.delete(sid);}
 function canManageStaff(user){return user.role==='owner'||hasPerm(user,'staff_manage');}
@@ -330,7 +331,7 @@ async function api(req,res,u){
     let ok=false;if(user){const incoming=Buffer.from(hashPassword(String(b.password||''),user.salt),'hex');const stored=Buffer.from(user.passwordHash,'hex');ok=incoming.length===stored.length&&crypto.timingSafeEqual(stored,incoming);}
     if(!ok)return json(res,401,{error:'INVALID_CREDENTIALS'});
     const sid=crypto.randomBytes(32).toString('hex'),csrf=crypto.randomBytes(24).toString('hex');
-    user.lastLoginAt=nowIso();sessions.set(sid,{userId:user.id,user:safeUser(user),csrf,expires:Date.now()+SESSION_TTL});logSecurity(user.name,'Успешный вход');persist();
+    user.lastLoginAt=nowIso();sessions.set(sid,{userId:user.id,user:safeUser(user),csrf,expires:Date.now()+SESSION_TTL});logSecurity(user.name,'Ð£ÑÐ¿ÐµÑÐ½ÑÐ¹ Ð²ÑÐ¾Ð´');persist();
     const cookie=`sid=${encodeURIComponent(sid)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL/1000}${COOKIE_SECURE?'; Secure':''}`;
     return json(res,200,{user:safeUser(user),csrf},{'Set-Cookie':cookie});
   }
@@ -356,20 +357,20 @@ async function api(req,res,u){
   if(req.method==='POST'&&u.pathname==='/api/buildings'){
     if(user.role!=='owner')return json(res,403,{error:'FORBIDDEN'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}
     let item;try{item=normalizeBuildingPayload(b,{id:'b'+crypto.randomBytes(5).toString('hex'),createdAt:nowIso(),archivedAt:''});}catch(e){return json(res,422,{error:e.message});}
-    db.buildings.push(item);const ownerAccount=db.users.find(x=>x.role==='owner');if(ownerAccount&&!ownerAccount.buildingIds.includes(item.id))ownerAccount.buildingIds.push(item.id);db.inspectionPlans.push({buildingId:item.id,frequencyDays:7,inspectorUserId:'',active:true,lastInspectionAt:'',nextDue:addDaysIso(nowIso(),7)});logSecurity(user.name,`Создан объект ${item.name}`);persist();return json(res,201,item);
+    db.buildings.push(item);const ownerAccount=db.users.find(x=>x.role==='owner');if(ownerAccount&&!ownerAccount.buildingIds.includes(item.id))ownerAccount.buildingIds.push(item.id);db.inspectionPlans.push({buildingId:item.id,frequencyDays:7,inspectorUserId:'',active:true,lastInspectionAt:'',nextDue:addDaysIso(nowIso(),7)});logSecurity(user.name,`Ð¡Ð¾Ð·Ð´Ð°Ð½ Ð¾Ð±ÑÐµÐºÑ ${item.name}`);persist();return json(res,201,item);
   }
   if(req.method==='PATCH'&&/^\/api\/buildings\/[^/]+$/.test(u.pathname)){
     if(user.role!=='owner')return json(res,403,{error:'FORBIDDEN'});const id=decodeURIComponent(u.pathname.split('/')[3]||''),item=db.buildings.find(x=>x.id===id);if(!item)return json(res,404,{error:'NOT_FOUND'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}
-    try{Object.assign(item,normalizeBuildingPayload(b,item));}catch(e){return json(res,422,{error:e.message});}logSecurity(user.name,`Изменён объект ${item.name}`);persist();return json(res,200,item);
+    try{Object.assign(item,normalizeBuildingPayload(b,item));}catch(e){return json(res,422,{error:e.message});}logSecurity(user.name,`ÐÐ·Ð¼ÐµÐ½ÑÐ½ Ð¾Ð±ÑÐµÐºÑ ${item.name}`);persist();return json(res,200,item);
   }
   if(req.method==='POST'&&/^\/api\/buildings\/[^/]+\/archive$/.test(u.pathname)){
-    if(user.role!=='owner')return json(res,403,{error:'FORBIDDEN'});const id=decodeURIComponent(u.pathname.split('/')[3]||''),item=db.buildings.find(x=>x.id===id);if(!item)return json(res,404,{error:'NOT_FOUND'});item.archivedAt=nowIso();const plan=db.inspectionPlans.find(x=>x.buildingId===id);if(plan)plan.active=false;logSecurity(user.name,`Объект ${item.name} перемещён в архив`);persist();return json(res,200,item);
+    if(user.role!=='owner')return json(res,403,{error:'FORBIDDEN'});const id=decodeURIComponent(u.pathname.split('/')[3]||''),item=db.buildings.find(x=>x.id===id);if(!item)return json(res,404,{error:'NOT_FOUND'});item.archivedAt=nowIso();const plan=db.inspectionPlans.find(x=>x.buildingId===id);if(plan)plan.active=false;logSecurity(user.name,`ÐÐ±ÑÐµÐºÑ ${item.name} Ð¿ÐµÑÐµÐ¼ÐµÑÑÐ½ Ð² Ð°ÑÑÐ¸Ð²`);persist();return json(res,200,item);
   }
   if(req.method==='POST'&&/^\/api\/buildings\/[^/]+\/restore$/.test(u.pathname)){
-    if(user.role!=='owner')return json(res,403,{error:'FORBIDDEN'});const id=decodeURIComponent(u.pathname.split('/')[3]||''),item=db.buildings.find(x=>x.id===id);if(!item)return json(res,404,{error:'NOT_FOUND'});item.archivedAt='';const plan=db.inspectionPlans.find(x=>x.buildingId===id);if(plan)plan.active=true;const ownerAccount=db.users.find(x=>x.role==='owner');if(ownerAccount&&!ownerAccount.buildingIds.includes(id))ownerAccount.buildingIds.push(id);logSecurity(user.name,`Объект ${item.name} восстановлен из архива`);persist();return json(res,200,item);
+    if(user.role!=='owner')return json(res,403,{error:'FORBIDDEN'});const id=decodeURIComponent(u.pathname.split('/')[3]||''),item=db.buildings.find(x=>x.id===id);if(!item)return json(res,404,{error:'NOT_FOUND'});item.archivedAt='';const plan=db.inspectionPlans.find(x=>x.buildingId===id);if(plan)plan.active=true;const ownerAccount=db.users.find(x=>x.role==='owner');if(ownerAccount&&!ownerAccount.buildingIds.includes(id))ownerAccount.buildingIds.push(id);logSecurity(user.name,`ÐÐ±ÑÐµÐºÑ ${item.name} Ð²Ð¾ÑÑÑÐ°Ð½Ð¾Ð²Ð»ÐµÐ½ Ð¸Ð· Ð°ÑÑÐ¸Ð²Ð°`);persist();return json(res,200,item);
   }
   if(req.method==='DELETE'&&/^\/api\/buildings\/[^/]+$/.test(u.pathname)){
-    if(user.role!=='owner')return json(res,403,{error:'FORBIDDEN'});const id=decodeURIComponent(u.pathname.split('/')[3]||''),index=db.buildings.findIndex(x=>x.id===id);if(index<0)return json(res,404,{error:'NOT_FOUND'});const item=db.buildings[index];if(!item.archivedAt)return json(res,409,{error:'BUILDING_MUST_BE_ARCHIVED'});const dependencies=buildingDependencyCounts(id);if(Object.values(dependencies).some(Boolean))return json(res,409,{error:'BUILDING_HAS_RELATED_DATA',dependencies});db.buildings.splice(index,1);db.inspectionPlans=db.inspectionPlans.filter(x=>x.buildingId!==id);db.routingRules=db.routingRules.filter(x=>x.buildingId!==id);for(const account of db.users)account.buildingIds=(account.buildingIds||[]).filter(x=>x!==id);logSecurity(user.name,`Удалён пустой архивный объект ${item.name}`);persist();return json(res,200,{ok:true});
+    if(user.role!=='owner')return json(res,403,{error:'FORBIDDEN'});const id=decodeURIComponent(u.pathname.split('/')[3]||''),index=db.buildings.findIndex(x=>x.id===id);if(index<0)return json(res,404,{error:'NOT_FOUND'});const item=db.buildings[index];if(!item.archivedAt)return json(res,409,{error:'BUILDING_MUST_BE_ARCHIVED'});const dependencies=buildingDependencyCounts(id);if(Object.values(dependencies).some(Boolean))return json(res,409,{error:'BUILDING_HAS_RELATED_DATA',dependencies});db.buildings.splice(index,1);db.inspectionPlans=db.inspectionPlans.filter(x=>x.buildingId!==id);db.routingRules=db.routingRules.filter(x=>x.buildingId!==id);for(const account of db.users)account.buildingIds=(account.buildingIds||[]).filter(x=>x!==id);logSecurity(user.name,`Ð£Ð´Ð°Ð»ÑÐ½ Ð¿ÑÑÑÐ¾Ð¹ Ð°ÑÑÐ¸Ð²Ð½ÑÐ¹ Ð¾Ð±ÑÐµÐºÑ ${item.name}`);persist();return json(res,200,{ok:true});
   }
   if(req.method==='GET'&&u.pathname==='/api/tenants')return json(res,200,visibleTenants(user));
   if(req.method==='GET'&&u.pathname==='/api/issues')return json(res,200,visibleIssues(user).map(publicIssue));
@@ -421,46 +422,46 @@ async function api(req,res,u){
   if(req.method==='POST'&&u.pathname==='/api/issues'){
     if(isTenant(user)){
       let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}const t=db.tenants.find(x=>x.id===user.tenantId);if(!t)return json(res,422,{error:'TENANT_NOT_ASSIGNED'});
-      try{const item=createIssueFromPayload({...b,buildingId:t.buildingId,tenantId:t.id,reporter:user.name,status:'new',responsibleUserId:''},user);logSecurity(user.name,`Создана заявка ${item.id}`);persist();return json(res,201,publicIssue(item));}catch(e){return json(res,422,{error:e.message});}
+      try{const item=createIssueFromPayload({...b,buildingId:t.buildingId,tenantId:t.id,reporter:user.name,status:'new',responsibleUserId:''},user);logSecurity(user.name,`Ð¡Ð¾Ð·Ð´Ð°Ð½Ð° Ð·Ð°ÑÐ²ÐºÐ° ${item.id}`);persist();return json(res,201,publicIssue(item));}catch(e){return json(res,422,{error:e.message});}
     }
     if(!hasPerm(user,'issues_edit'))return json(res,403,{error:'FORBIDDEN'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}
     const tenant=b.tenantId?db.tenants.find(t=>t.id===b.tenantId):null;const buildingId=b.buildingId||tenant?.buildingId;if(!canAccessBuilding(user,buildingId))return json(res,403,{error:'FORBIDDEN'});
-    try{const item=createIssueFromPayload({...b,buildingId},user);logSecurity(user.name,`Создана заявка ${item.id}`);persist();return json(res,201,publicIssue(item));}catch(e){return json(res,422,{error:e.message});}
+    try{const item=createIssueFromPayload({...b,buildingId},user);logSecurity(user.name,`Ð¡Ð¾Ð·Ð´Ð°Ð½Ð° Ð·Ð°ÑÐ²ÐºÐ° ${item.id}`);persist();return json(res,201,publicIssue(item));}catch(e){return json(res,422,{error:e.message});}
   }
   if(req.method==='POST'&&/^\/api\/issues\/[^/]+\/photos$/.test(u.pathname)){
     const id=decodeURIComponent(u.pathname.split('/')[3]||''),item=db.issues.find(x=>x.id===id);if(!item)return json(res,404,{error:'NOT_FOUND'});if(!canSeeIssue(user,item))return json(res,403,{error:'FORBIDDEN'});
     let b;try{b=await bodyJson(req,30_000_000);}catch{return json(res,413,{error:'UPLOAD_TOO_LARGE'});}const kind=['problem','progress','solution'].includes(b.kind)?b.kind:'problem';if(isTenant(user)&&kind!=='problem')return json(res,403,{error:'FORBIDDEN'});if(!isTenant(user)&&!canEditIssue(user,item))return json(res,403,{error:'FORBIDDEN'});
-    try{const saved=saveIssuePhotos(item,b.photos,kind,user.name);if(saved.length)item.timeline.push({at:nowIso(),actor:user.name,text:`Добавлены фотографии: ${saved.length}`});persist();return json(res,201,{photos:saved.map(p=>publicIssuePhoto(p,item.id))});}catch(e){return json(res,422,{error:e.message});}
+    try{const saved=saveIssuePhotos(item,b.photos,kind,user.name);if(saved.length)item.timeline.push({at:nowIso(),actor:user.name,text:`ÐÐ¾Ð±Ð°Ð²Ð»ÐµÐ½Ñ ÑÐ¾ÑÐ¾Ð³ÑÐ°ÑÐ¸Ð¸: ${saved.length}`});persist();return json(res,201,{photos:saved.map(p=>publicIssuePhoto(p,item.id))});}catch(e){return json(res,422,{error:e.message});}
   }
   if(req.method==='POST'&&/^\/api\/issues\/[^/]+\/reports$/.test(u.pathname)){
     const id=decodeURIComponent(u.pathname.split('/')[3]||''),item=db.issues.find(x=>x.id===id);if(!item)return json(res,404,{error:'NOT_FOUND'});if(!canEditIssue(user,item))return json(res,403,{error:'FORBIDDEN'});
     let b;try{b=await bodyJson(req,30_000_000);}catch{return json(res,413,{error:'UPLOAD_TOO_LARGE'});}if(!String(b.author||'').trim()||!String(b.text||'').trim())return json(res,422,{error:'REQUIRED_FIELDS'});if(!Array.isArray(b.photos)||!b.photos.length)return json(res,422,{error:'PHOTO_REQUIRED'});
     try{
-      const kind=b.markDone?'solution':'progress',saved=saveIssuePhotos(item,b.photos,kind,String(b.author).slice(0,100));const at=nowIso();const report={id:'r'+crypto.randomBytes(5).toString('hex'),kind,author:String(b.author).slice(0,100),recordedBy:user.name,text:String(b.text).slice(0,1500),at,photos:saved.map(p=>p.id)};item.reports.push(report);item.timeline.push({at,actor:user.name,text:`Добавлен ${kind==='solution'?'итоговый':'промежуточный'} фотоотчёт: ${report.author}`});
-      if(b.markDone){item.resolvedBy=report.author;item.resolvedAt=at;item.result=report.text;if(item.tenantId){item.status='awaiting_acceptance';item.tenantAcceptedAt='';item.tenantAcceptedBy='';item.timeline.push({at,actor:user.name,text:'Работа выполнена — ожидается подтверждение арендатора'});const tu=db.users.find(x=>x.role==='tenant'&&x.tenantId===item.tenantId&&x.active!==false);if(tu)notifyUser(tu.id,'Проблема ожидает вашего подтверждения',item.title,{issueId:item.id,buildingId:item.buildingId});}else{item.status='done';item.timeline.push({at,actor:user.name,text:'Проблема закрыта итоговым фотоотчётом'});}}
+      const kind=b.markDone?'solution':'progress',saved=saveIssuePhotos(item,b.photos,kind,String(b.author).slice(0,100));const at=nowIso();const report={id:'r'+crypto.randomBytes(5).toString('hex'),kind,author:String(b.author).slice(0,100),recordedBy:user.name,text:String(b.text).slice(0,1500),at,photos:saved.map(p=>p.id)};item.reports.push(report);item.timeline.push({at,actor:user.name,text:`ÐÐ¾Ð±Ð°Ð²Ð»ÐµÐ½ ${kind==='solution'?'Ð¸ÑÐ¾Ð³Ð¾Ð²ÑÐ¹':'Ð¿ÑÐ¾Ð¼ÐµÐ¶ÑÑÐ¾ÑÐ½ÑÐ¹'} ÑÐ¾ÑÐ¾Ð¾ÑÑÑÑ: ${report.author}`});
+      if(b.markDone){item.resolvedBy=report.author;item.resolvedAt=at;item.result=report.text;if(item.tenantId){item.status='awaiting_acceptance';item.tenantAcceptedAt='';item.tenantAcceptedBy='';item.timeline.push({at,actor:user.name,text:'Ð Ð°Ð±Ð¾ÑÐ° Ð²ÑÐ¿Ð¾Ð»Ð½ÐµÐ½Ð° â Ð¾Ð¶Ð¸Ð´Ð°ÐµÑÑÑ Ð¿Ð¾Ð´ÑÐ²ÐµÑÐ¶Ð´ÐµÐ½Ð¸Ðµ Ð°ÑÐµÐ½Ð´Ð°ÑÐ¾ÑÐ°'});const tu=db.users.find(x=>x.role==='tenant'&&x.tenantId===item.tenantId&&x.active!==false);if(tu)notifyUser(tu.id,'ÐÑÐ¾Ð±Ð»ÐµÐ¼Ð° Ð¾Ð¶Ð¸Ð´Ð°ÐµÑ Ð²Ð°ÑÐµÐ³Ð¾ Ð¿Ð¾Ð´ÑÐ²ÐµÑÐ¶Ð´ÐµÐ½Ð¸Ñ',item.title,{issueId:item.id,buildingId:item.buildingId});}else{item.status='done';item.timeline.push({at,actor:user.name,text:'ÐÑÐ¾Ð±Ð»ÐµÐ¼Ð° Ð·Ð°ÐºÑÑÑÐ° Ð¸ÑÐ¾Ð³Ð¾Ð²ÑÐ¼ ÑÐ¾ÑÐ¾Ð¾ÑÑÑÑÐ¾Ð¼'});}}
       persist();return json(res,201,publicIssue(item));
     }catch(e){return json(res,422,{error:e.message});}
   }
   if(req.method==='POST'&&/^\/api\/issues\/[^/]+\/tenant-decision$/.test(u.pathname)){
     if(!isTenant(user))return json(res,403,{error:'FORBIDDEN'});const id=decodeURIComponent(u.pathname.split('/')[3]||''),item=db.issues.find(x=>x.id===id);if(!item)return json(res,404,{error:'NOT_FOUND'});if(item.tenantId!==user.tenantId)return json(res,403,{error:'FORBIDDEN'});if(item.status!=='awaiting_acceptance')return json(res,409,{error:'NOT_AWAITING_ACCEPTANCE'});
     let b;try{b=await bodyJson(req,30_000_000);}catch{return json(res,413,{error:'UPLOAD_TOO_LARGE'});}const decision=b.decision==='rejected'?'rejected':'accepted';if(decision==='rejected'&&!String(b.comment||'').trim())return json(res,422,{error:'COMMENT_REQUIRED'});
-    try{const saved=saveIssuePhotos(item,b.photos,decision==='accepted'?'acceptance':'rejection',user.name);const at=nowIso();item.acceptanceHistory.push({id:'a'+crypto.randomBytes(5).toString('hex'),decision,actor:user.name,at,comment:String(b.comment||'').slice(0,1500),photos:saved.map(p=>p.id)});if(decision==='accepted'){item.status='done';item.tenantAcceptedAt=at;item.tenantAcceptedBy=user.name;item.timeline.push({at,actor:user.name,text:'Арендатор подтвердил устранение проблемы'});if(item.responsibleUserId)notifyUser(item.responsibleUserId,'Арендатор принял результат',item.title,{issueId:item.id,buildingId:item.buildingId});}else{item.status='in_progress';item.tenantAcceptedAt='';item.tenantAcceptedBy='';item.timeline.push({at,actor:user.name,text:'Арендатор сообщил, что проблема осталась — возвращено в работу'});if(item.responsibleUserId)notifyUser(item.responsibleUserId,'Проблема возвращена в работу',item.title,{issueId:item.id,buildingId:item.buildingId});}persist();return json(res,200,publicIssue(item));}catch(e){return json(res,422,{error:e.message});}
+    try{const saved=saveIssuePhotos(item,b.photos,decision==='accepted'?'acceptance':'rejection',user.name);const at=nowIso();item.acceptanceHistory.push({id:'a'+crypto.randomBytes(5).toString('hex'),decision,actor:user.name,at,comment:String(b.comment||'').slice(0,1500),photos:saved.map(p=>p.id)});if(decision==='accepted'){item.status='done';item.tenantAcceptedAt=at;item.tenantAcceptedBy=user.name;item.timeline.push({at,actor:user.name,text:'ÐÑÐµÐ½Ð´Ð°ÑÐ¾Ñ Ð¿Ð¾Ð´ÑÐ²ÐµÑÐ´Ð¸Ð» ÑÑÑÑÐ°Ð½ÐµÐ½Ð¸Ðµ Ð¿ÑÐ¾Ð±Ð»ÐµÐ¼Ñ'});if(item.responsibleUserId)notifyUser(item.responsibleUserId,'ÐÑÐµÐ½Ð´Ð°ÑÐ¾Ñ Ð¿ÑÐ¸Ð½ÑÐ» ÑÐµÐ·ÑÐ»ÑÑÐ°Ñ',item.title,{issueId:item.id,buildingId:item.buildingId});}else{item.status='in_progress';item.tenantAcceptedAt='';item.tenantAcceptedBy='';item.timeline.push({at,actor:user.name,text:'ÐÑÐµÐ½Ð´Ð°ÑÐ¾Ñ ÑÐ¾Ð¾Ð±ÑÐ¸Ð», ÑÑÐ¾ Ð¿ÑÐ¾Ð±Ð»ÐµÐ¼Ð° Ð¾ÑÑÐ°Ð»Ð°ÑÑ â Ð²Ð¾Ð·Ð²ÑÐ°ÑÐµÐ½Ð¾ Ð² ÑÐ°Ð±Ð¾ÑÑ'});if(item.responsibleUserId)notifyUser(item.responsibleUserId,'ÐÑÐ¾Ð±Ð»ÐµÐ¼Ð° Ð²Ð¾Ð·Ð²ÑÐ°ÑÐµÐ½Ð° Ð² ÑÐ°Ð±Ð¾ÑÑ',item.title,{issueId:item.id,buildingId:item.buildingId});}persist();return json(res,200,publicIssue(item));}catch(e){return json(res,422,{error:e.message});}
   }
   if(req.method==='PATCH'&&/^\/api\/issues\/[^/]+$/.test(u.pathname)){
     const id=decodeURIComponent(u.pathname.split('/')[3]||''),item=db.issues.find(x=>x.id===id);if(!item)return json(res,404,{error:'NOT_FOUND'});if(!canEditIssue(user,item))return json(res,403,{error:'FORBIDDEN'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}
     if(b.status==='done'&&item.tenantId)return json(res,422,{error:'USE_PHOTO_REPORT_WORKFLOW'});
     const fields=['priority','status','due','executor'];for(const f of fields)if(f in b)item[f]=String(b[f]||'').slice(0,100);
     if('cost'in b)item.cost=Math.max(0,Number(b.cost||0));
-    if('responsibleUserId'in b){const old=item.responsibleUserId;const ru=findUser(b.responsibleUserId);if(ru&&ru.active!==false){item.responsibleUserId=ru.id;item.responsible=ru.name;if(old!==ru.id)notifyUser(ru.id,'Вам назначена проблема',item.title,{issueId:item.id,buildingId:item.buildingId});}else if(!b.responsibleUserId){item.responsibleUserId='';item.responsible='';}}
+    if('responsibleUserId'in b){const old=item.responsibleUserId;const ru=findUser(b.responsibleUserId);if(ru&&ru.active!==false){item.responsibleUserId=ru.id;item.responsible=ru.name;if(old!==ru.id)notifyUser(ru.id,'ÐÐ°Ð¼ Ð½Ð°Ð·Ð½Ð°ÑÐµÐ½Ð° Ð¿ÑÐ¾Ð±Ð»ÐµÐ¼Ð°',item.title,{issueId:item.id,buildingId:item.buildingId});}else if(!b.responsibleUserId){item.responsibleUserId='';item.responsible='';}}
     else if('responsible'in b){item.responsible=String(b.responsible||'').slice(0,80);const ru=db.users.find(x=>x.name===item.responsible&&x.active!==false);item.responsibleUserId=ru?.id||'';}
     if('curatorUserId'in b){const cu=findUser(b.curatorUserId);if(cu&&cu.active!==false){item.curatorUserId=cu.id;item.curator=cu.name;}}
     else if('curator'in b)item.curator=String(b.curator||'').slice(0,80);
-    item.timeline.push({at:nowIso(),actor:user.name,text:'Параметры проблемы обновлены'});persist();return json(res,200,publicIssue(item));
+    item.timeline.push({at:nowIso(),actor:user.name,text:'ÐÐ°ÑÐ°Ð¼ÐµÑÑÑ Ð¿ÑÐ¾Ð±Ð»ÐµÐ¼Ñ Ð¾Ð±Ð½Ð¾Ð²Ð»ÐµÐ½Ñ'});persist();return json(res,200,publicIssue(item));
   }
 
   if(req.method==='POST'&&u.pathname==='/api/tenants'){
     if(!hasPerm(user,'tenants_manage'))return json(res,403,{error:'FORBIDDEN'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}if(!canAccessBuilding(user,b.buildingId))return json(res,403,{error:'FORBIDDEN'});if(!String(b.company||'').trim()||!Number(b.area))return json(res,422,{error:'REQUIRED_FIELDS'});
-    const t={id:'t'+crypto.randomBytes(4).toString('hex'),buildingId:String(b.buildingId),company:String(b.company).slice(0,100),legalName:String(b.legalName||'').slice(0,140),unit:String(b.unit||'').slice(0,50),floor:Number(b.floor||0),area:Number(b.area||0),contact:String(b.contact||'').slice(0,100),phone:String(b.phone||'').slice(0,50),ownerResponsible:String(b.ownerResponsible||'').slice(0,100),startDate:String(b.startDate||''),endDate:String(b.endDate||''),note:String(b.note||'').slice(0,500)};db.tenants.push(t);logSecurity(user.name,`Добавлен арендатор ${t.company}`);persist();return json(res,201,t);
+    const t={id:'t'+crypto.randomBytes(4).toString('hex'),buildingId:String(b.buildingId),company:String(b.company).slice(0,100),legalName:String(b.legalName||'').slice(0,140),unit:String(b.unit||'').slice(0,50),floor:Number(b.floor||0),area:Number(b.area||0),contact:String(b.contact||'').slice(0,100),phone:String(b.phone||'').slice(0,50),ownerResponsible:String(b.ownerResponsible||'').slice(0,100),startDate:String(b.startDate||''),endDate:String(b.endDate||''),note:String(b.note||'').slice(0,500)};db.tenants.push(t);logSecurity(user.name,`ÐÐ¾Ð±Ð°Ð²Ð»ÐµÐ½ Ð°ÑÐµÐ½Ð´Ð°ÑÐ¾Ñ ${t.company}`);persist();return json(res,201,t);
   }
 
   if(req.method==='POST'&&u.pathname==='/api/inspections'){
@@ -470,49 +471,49 @@ async function api(req,res,u){
     if(b.buildingFinding&&String(b.buildingFinding.title||'').trim()&&(!Array.isArray(b.buildingFinding.photos)||!b.buildingFinding.photos.length))return json(res,422,{error:'BUILDING_PROBLEM_PHOTO_REQUIRED'});
     const item=ensureInspectionShape({id:'insp'+crypto.randomBytes(5).toString('hex'),buildingId,inspectorUserId:user.id,inspectorName:user.name,occurredAt:String(b.occurredAt||nowIso()),createdAt:nowIso(),overallCondition:['ok','attention','critical'].includes(b.overallCondition)?b.overallCondition:'ok',notes:String(b.notes||'').slice(0,2000),signature:user.name,photos:[],exteriorPhotoIds:[],tenantChecks:[],buildingFinding:null,createdIssueIds:[]});
     try{
-      for(const row of ext){const saved=savePhotos(INSPECTION_UPLOAD_DIR,item.id,item.photos,[row.photo],{group:'exterior',label:String(row.side||'Фасад').slice(0,80),tenantId:'',actor:user.name});item.exteriorPhotoIds.push(...saved.map(p=>p.id));}
+      for(const row of ext){const saved=savePhotos(INSPECTION_UPLOAD_DIR,item.id,item.photos,[row.photo],{group:'exterior',label:String(row.side||'Ð¤Ð°ÑÐ°Ð´').slice(0,80),tenantId:'',actor:user.name});item.exteriorPhotoIds.push(...saved.map(p=>p.id));}
       const checks=Array.isArray(b.tenantChecks)?b.tenantChecks:[];
       for(const c of checks){
         const tenant=db.tenants.find(t=>t.id===c.tenantId&&t.buildingId===buildingId);if(!tenant)continue;const status=['ok','problem','not_checked'].includes(c.status)?c.status:'not_checked';
-        const check={tenantId:tenant.id,status,notes:String(c.notes||'').slice(0,1000),category:String(c.category||'Другое').slice(0,60),priority:['low','normal','high','critical'].includes(c.priority)?c.priority:'normal',photoIds:[],issueId:''};
+        const check={tenantId:tenant.id,status,notes:String(c.notes||'').slice(0,1000),category:String(c.category||'ÐÑÑÐ³Ð¾Ðµ').slice(0,60),priority:['low','normal','high','critical'].includes(c.priority)?c.priority:'normal',photoIds:[],issueId:''};
         const pics=Array.isArray(c.photos)?c.photos:[];if(status==='problem'&&!String(c.notes||c.title||'').trim())throw new Error('TENANT_PROBLEM_DESCRIPTION_REQUIRED');if(status==='problem'&&!pics.length)throw new Error('TENANT_PROBLEM_PHOTO_REQUIRED');
         if(pics.length){const saved=savePhotos(INSPECTION_UPLOAD_DIR,item.id,item.photos,pics,{group:'tenant',label:tenant.company,tenantId:tenant.id,actor:user.name});check.photoIds=saved.map(p=>p.id);}
         if(status==='problem'){
-          const issue=createIssueFromPayload({buildingId,tenantId:tenant.id,title:String(c.title||`Осмотр ${tenant.company}: ${c.notes}`).slice(0,160),category:check.category,priority:check.priority,reporter:`Осмотр · ${user.name}`},user,{sourceInspectionId:item.id});
+          const issue=createIssueFromPayload({buildingId,tenantId:tenant.id,title:String(c.title||`ÐÑÐ¼Ð¾ÑÑ ${tenant.company}: ${c.notes}`).slice(0,160),category:check.category,priority:check.priority,reporter:`ÐÑÐ¼Ð¾ÑÑ Â· ${user.name}`},user,{sourceInspectionId:item.id});
           const issuePhotos=check.photoIds.map(pid=>item.photos.find(p=>p.id===pid)).filter(Boolean).map(meta=>({name:meta.originalName,type:meta.mime,data:`data:${meta.mime};base64,${fs.readFileSync(path.join(INSPECTION_UPLOAD_DIR,item.id,meta.file)).toString('base64')}`}));
           saveIssuePhotos(issue,issuePhotos,'problem',user.name);check.issueId=issue.id;item.createdIssueIds.push(issue.id);
         }
         item.tenantChecks.push(check);
       }
       if(b.buildingFinding&&String(b.buildingFinding.title||'').trim()){
-        const f=b.buildingFinding,pics=Array.isArray(f.photos)?f.photos:[];if(!pics.length)throw new Error('BUILDING_PROBLEM_PHOTO_REQUIRED');const saved=savePhotos(INSPECTION_UPLOAD_DIR,item.id,item.photos,pics,{group:'building_problem',label:'Проблема объекта',tenantId:'',actor:user.name});
-        const issue=createIssueFromPayload({buildingId,title:String(f.title).slice(0,160),category:String(f.category||'Другое'),priority:f.priority||'normal',reporter:`Осмотр · ${user.name}`},user,{sourceInspectionId:item.id});
+        const f=b.buildingFinding,pics=Array.isArray(f.photos)?f.photos:[];if(!pics.length)throw new Error('BUILDING_PROBLEM_PHOTO_REQUIRED');const saved=savePhotos(INSPECTION_UPLOAD_DIR,item.id,item.photos,pics,{group:'building_problem',label:'ÐÑÐ¾Ð±Ð»ÐµÐ¼Ð° Ð¾Ð±ÑÐµÐºÑÐ°',tenantId:'',actor:user.name});
+        const issue=createIssueFromPayload({buildingId,title:String(f.title).slice(0,160),category:String(f.category||'ÐÑÑÐ³Ð¾Ðµ'),priority:f.priority||'normal',reporter:`ÐÑÐ¼Ð¾ÑÑ Â· ${user.name}`},user,{sourceInspectionId:item.id});
         const issuePics=saved.map(meta=>({name:meta.originalName,type:meta.mime,data:`data:${meta.mime};base64,${fs.readFileSync(path.join(INSPECTION_UPLOAD_DIR,item.id,meta.file)).toString('base64')}`}));saveIssuePhotos(issue,issuePics,'problem',user.name);
-        item.buildingFinding={title:String(f.title).slice(0,160),notes:String(f.notes||'').slice(0,1000),category:String(f.category||'Другое').slice(0,60),priority:['low','normal','high','critical'].includes(f.priority)?f.priority:'normal',photoIds:saved.map(p=>p.id),issueId:issue.id};item.createdIssueIds.push(issue.id);
+        item.buildingFinding={title:String(f.title).slice(0,160),notes:String(f.notes||'').slice(0,1000),category:String(f.category||'ÐÑÑÐ³Ð¾Ðµ').slice(0,60),priority:['low','normal','high','critical'].includes(f.priority)?f.priority:'normal',photoIds:saved.map(p=>p.id),issueId:issue.id};item.createdIssueIds.push(issue.id);
       }
       db.inspections.unshift(item);const plan=db.inspectionPlans.find(p=>p.buildingId===buildingId);if(plan){plan.lastInspectionAt=item.occurredAt;plan.nextDue=addDaysIso(item.occurredAt,plan.frequencyDays||7);}
-      logSecurity(user.name,`Проведён осмотр ${buildingId}: создано проблем ${item.createdIssueIds.length}`);persist();return json(res,201,publicInspection(item));
+      logSecurity(user.name,`ÐÑÐ¾Ð²ÐµÐ´ÑÐ½ Ð¾ÑÐ¼Ð¾ÑÑ ${buildingId}: ÑÐ¾Ð·Ð´Ð°Ð½Ð¾ Ð¿ÑÐ¾Ð±Ð»ÐµÐ¼ ${item.createdIssueIds.length}`);persist();return json(res,201,publicInspection(item));
     }catch(e){return json(res,422,{error:e.message});}
   }
 
   if(req.method==='POST'&&u.pathname==='/api/staff'){
     if(!canManageStaff(user))return json(res,403,{error:'FORBIDDEN'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}const email=String(b.email||'').trim().toLowerCase(),name=String(b.name||'').trim(),role=STAFF_ROLES.includes(b.role)?b.role:'manager';if(!email||!name)return json(res,422,{error:'REQUIRED_FIELDS'});if(db.users.some(x=>x.email===email))return json(res,409,{error:'EMAIL_EXISTS'});
-    const tempPassword=generateTempPassword(),permissions=uniqueStrings(Array.isArray(b.permissions)?b.permissions:ROLE_DEFAULTS[role],PERMISSIONS),buildingIds=uniqueStrings(b.buildingIds).filter(id=>db.buildings.some(x=>x.id===id));const account=createStoredUser('u'+crypto.randomBytes(5).toString('hex'),role,email,tempPassword,{name:name.slice(0,100),permissions,buildingIds});db.users.push(account);logSecurity(user.name,`Создан сотрудник ${account.name} (${role})`);persist();return json(res,201,{user:publicUser(account),temporaryPassword:tempPassword});
+    const tempPassword=generateTempPassword(),permissions=uniqueStrings(Array.isArray(b.permissions)?b.permissions:ROLE_DEFAULTS[role],PERMISSIONS),buildingIds=uniqueStrings(b.buildingIds).filter(id=>db.buildings.some(x=>x.id===id));const account=createStoredUser('u'+crypto.randomBytes(5).toString('hex'),role,email,tempPassword,{name:name.slice(0,100),permissions,buildingIds});db.users.push(account);logSecurity(user.name,`Ð¡Ð¾Ð·Ð´Ð°Ð½ ÑÐ¾ÑÑÑÐ´Ð½Ð¸Ðº ${account.name} (${role})`);persist();return json(res,201,{user:publicUser(account),temporaryPassword:tempPassword});
   }
   if(req.method==='PATCH'&&/^\/api\/staff\/[^/]+$/.test(u.pathname)){
     if(!canManageStaff(user))return json(res,403,{error:'FORBIDDEN'});const id=decodeURIComponent(u.pathname.split('/')[3]||''),target=findUser(id);if(!target)return json(res,404,{error:'NOT_FOUND'});if(target.role==='owner')return json(res,403,{error:'OWNER_PROTECTED'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}
     if('name'in b&&String(b.name).trim())target.name=String(b.name).trim().slice(0,100);if('role'in b&&STAFF_ROLES.includes(b.role)){target.role=b.role;if(!('permissions'in b))target.permissions=ROLE_DEFAULTS[b.role]||[];}if('permissions'in b)target.permissions=uniqueStrings(b.permissions,PERMISSIONS);if('buildingIds'in b)target.buildingIds=uniqueStrings(b.buildingIds).filter(x=>db.buildings.some(q=>q.id===x));
     if('active'in b){target.active=!!b.active;if(!target.active){target.firedAt=nowIso();terminateUserSessions(target.id);}else target.firedAt='';}
-    logSecurity(user.name,`${target.active?'Обновлён':'Отключён'} сотрудник ${target.name}`);persist();return json(res,200,publicUser(target));
+    logSecurity(user.name,`${target.active?'ÐÐ±Ð½Ð¾Ð²Ð»ÑÐ½':'ÐÑÐºÐ»ÑÑÑÐ½'} ÑÐ¾ÑÑÑÐ´Ð½Ð¸Ðº ${target.name}`);persist();return json(res,200,publicUser(target));
   }
   if(req.method==='POST'&&/^\/api\/staff\/[^/]+\/reset-password$/.test(u.pathname)){
-    if(!canManageStaff(user))return json(res,403,{error:'FORBIDDEN'});const id=decodeURIComponent(u.pathname.split('/')[3]||''),target=findUser(id);if(!target||target.role==='owner')return json(res,404,{error:'NOT_FOUND'});const tempPassword=generateTempPassword(),salt=crypto.randomBytes(16).toString('hex');target.salt=salt;target.passwordHash=hashPassword(tempPassword,salt);terminateUserSessions(target.id);logSecurity(user.name,`Сброшен пароль сотрудника ${target.name}`);persist();return json(res,200,{temporaryPassword:tempPassword});
+    if(!canManageStaff(user))return json(res,403,{error:'FORBIDDEN'});const id=decodeURIComponent(u.pathname.split('/')[3]||''),target=findUser(id);if(!target||target.role==='owner')return json(res,404,{error:'NOT_FOUND'});const tempPassword=generateTempPassword(),salt=crypto.randomBytes(16).toString('hex');target.salt=salt;target.passwordHash=hashPassword(tempPassword,salt);terminateUserSessions(target.id);logSecurity(user.name,`Ð¡Ð±ÑÐ¾ÑÐµÐ½ Ð¿Ð°ÑÐ¾Ð»Ñ ÑÐ¾ÑÑÑÐ´Ð½Ð¸ÐºÐ° ${target.name}`);persist();return json(res,200,{temporaryPassword:tempPassword});
   }
   if(req.method==='POST'&&u.pathname==='/api/routing-rules'){
-    if(!canManageStaff(user))return json(res,403,{error:'FORBIDDEN'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}const buildingId=String(b.buildingId||'*'),category=String(b.category||'Другое').slice(0,60),ru=findUser(b.responsibleUserId);if(buildingId!=='*'&&!db.buildings.some(x=>x.id===buildingId))return json(res,422,{error:'BAD_BUILDING'});if(!ru||ru.active===false||ru.role==='tenant')return json(res,422,{error:'BAD_RESPONSIBLE'});let rule=db.routingRules.find(r=>r.buildingId===buildingId&&r.category===category);if(rule){rule.responsibleUserId=ru.id;rule.active=true;}else{rule={id:'rr'+crypto.randomBytes(4).toString('hex'),buildingId,category,responsibleUserId:ru.id,active:true};db.routingRules.push(rule);}logSecurity(user.name,`Маршрут ${category} → ${ru.name}`);persist();return json(res,200,rule);
+    if(!canManageStaff(user))return json(res,403,{error:'FORBIDDEN'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}const buildingId=String(b.buildingId||'*'),category=String(b.category||'ÐÑÑÐ³Ð¾Ðµ').slice(0,60),ru=findUser(b.responsibleUserId);if(buildingId!=='*'&&!db.buildings.some(x=>x.id===buildingId))return json(res,422,{error:'BAD_BUILDING'});if(!ru||ru.active===false||ru.role==='tenant')return json(res,422,{error:'BAD_RESPONSIBLE'});let rule=db.routingRules.find(r=>r.buildingId===buildingId&&r.category===category);if(rule){rule.responsibleUserId=ru.id;rule.active=true;}else{rule={id:'rr'+crypto.randomBytes(4).toString('hex'),buildingId,category,responsibleUserId:ru.id,active:true};db.routingRules.push(rule);}logSecurity(user.name,`ÐÐ°ÑÑÑÑÑ ${category} â ${ru.name}`);persist();return json(res,200,rule);
   }
   if(req.method==='PATCH'&&/^\/api\/inspection-plans\/[^/]+$/.test(u.pathname)){
-    if(!canManageStaff(user))return json(res,403,{error:'FORBIDDEN'});const buildingId=decodeURIComponent(u.pathname.split('/')[3]||''),plan=db.inspectionPlans.find(p=>p.buildingId===buildingId);if(!plan)return json(res,404,{error:'NOT_FOUND'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}if('frequencyDays'in b)plan.frequencyDays=Math.max(1,Math.min(90,Number(b.frequencyDays||7)));if('inspectorUserId'in b){const iu=findUser(b.inspectorUserId);if(!iu||iu.active===false||iu.role==='tenant')return json(res,422,{error:'BAD_INSPECTOR'});plan.inspectorUserId=iu.id;}if('nextDue'in b)plan.nextDue=String(b.nextDue||'').slice(0,10);if('active'in b)plan.active=!!b.active;logSecurity(user.name,`Обновлён график осмотров ${buildingId}`);persist();return json(res,200,plan);
+    if(!canManageStaff(user))return json(res,403,{error:'FORBIDDEN'});const buildingId=decodeURIComponent(u.pathname.split('/')[3]||''),plan=db.inspectionPlans.find(p=>p.buildingId===buildingId);if(!plan)return json(res,404,{error:'NOT_FOUND'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}if('frequencyDays'in b)plan.frequencyDays=Math.max(1,Math.min(90,Number(b.frequencyDays||7)));if('inspectorUserId'in b){const iu=findUser(b.inspectorUserId);if(!iu||iu.active===false||iu.role==='tenant')return json(res,422,{error:'BAD_INSPECTOR'});plan.inspectorUserId=iu.id;}if('nextDue'in b)plan.nextDue=String(b.nextDue||'').slice(0,10);if('active'in b)plan.active=!!b.active;logSecurity(user.name,`ÐÐ±Ð½Ð¾Ð²Ð»ÑÐ½ Ð³ÑÐ°ÑÐ¸Ðº Ð¾ÑÐ¼Ð¾ÑÑÐ¾Ð² ${buildingId}`);persist();return json(res,200,plan);
   }
 
   return json(res,404,{error:'NOT_FOUND'});
