@@ -69,6 +69,13 @@ networks:
   internal:
     driver: bridge
 
+# Reuse the existing production data volumes from the current Owner Property install.
+# external:true is intentional: if either volume is missing, Compose must fail
+# instead of silently creating a new empty database/uploads volume.
 volumes:
   app_data:
+    external: true
+    name: property-owner_app_data
   app_uploads:
+    external: true
+    name: property-owner_app_uploads
