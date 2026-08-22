@@ -1,0 +1,78 @@
+name: Publish verified v3 clean branch
+
+on:
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish-v3-clean:
+    if: github.head_ref == 'recovery/v3-upload' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout recovery transport
+        uses: actions/checkout@v4
+        with:
+          ref: recovery/v3-upload
+          fetch-depth: 0
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Reassemble verified source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find .v3-upload-v2 -maxdepth 1 -type f -name 'part-*.b64' | wc -l)" -eq 11
+          cat .v3-upload-v2/part-*.b64 | tr -d '\r\n' | base64 -d > /tmp/v3-clean-source.tar.gz
+          echo "ead6e9e4f7fb5b6538e607b14a05cc35a88999f3770ebf88d265e82d305b51cd  /tmp/v3-clean-source.tar.gz" | sha256sum -c -
+          rm -rf /tmp/v3-clean
+          mkdir -p /tmp/v3-clean
+          tar -xzf /tmp/v3-clean-source.tar.gz -C /tmp/v3-clean
+          test -f /tmp/v3-clean/server.js
+          test -f /tmp/v3-clean/package.json
+          test -d /tmp/v3-clean/src
+          test -d /tmp/v3-clean/public
+          test -f /tmp/v3-clean/tests/smoke.js
+          test -f /tmp/v3-clean/.github/workflows/ci.yml
+
+      - name: Verify source and functional smoke
+        working-directory: /tmp/v3-clean
+        env:
+          OWNER_LOGIN: owner
+          OWNER_PASSWORD: CI-Only-Owner-Password-2026!
+        run: |
+          set -euo pipefail
+          npm run check
+          npm test
+          test "$(node -p "require('./package.json').version")" = "3.0.0"
+          if grep -RInE '@local|Demo!|demo-box|Ленинский 136|Московский 114|Магнит' server.js src public data tests; then
+            echo "Legacy demo data found"
+            exit 1
+          fi
+          test -z "$(find . -maxdepth 2 \( -name 'baseline-*' -o -name overlays -o -name patches -o -name '*.b64' \) -print)"
+
+      - name: Publish ordinary clean source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --orphan v3-clean-output
+          git rm -rf . >/dev/null 2>&1 || true
+          git clean -fdx >/dev/null 2>&1 || true
+          cp -a /tmp/v3-clean/. .
+          # GITHUB_TOKEN cannot push workflow-file changes from this job.
+          # Publish the verified application tree first; CI is added immediately
+          # afterwards through the GitHub contents API.
+          rm -rf .github
+          test ! -d .v3-upload
+          test ! -d .v3-upload-v2
+          git add -A
+          git commit -m "v3-clean: restore clean application baseline"
+          git push --force origin HEAD:refs/heads/recovery/v3-clean
