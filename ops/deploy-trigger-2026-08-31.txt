@@ -1,0 +1,2 @@
+Recovery v3 clean production redeploy requested on 2026-08-31.
+No application logic or production data changes.
