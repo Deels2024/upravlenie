@@ -1,0 +1,112 @@
+name: One-time owner reset v3
+
+on:
+  push:
+    branches:
+      - recovery/v3-clean
+    paths:
+      - .github/workflows/reset-owner-v3.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  reset-owner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          timeout 20 ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Reset owner credential and verify login
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          NEW_OWNER_PASSWORD="$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 28)Aa7!"
+
+          rewrite_env() {
+            file="$1"
+            mkdir -p "$(dirname "$file")"
+            touch "$file"
+            tmp="$(mktemp)"
+            grep -vE '^(OWNER_LOGIN|OWNER_PASSWORD)=' "$file" > "$tmp" || true
+            printf 'OWNER_LOGIN=owner\nOWNER_PASSWORD=%s\n' "$NEW_OWNER_PASSWORD" >> "$tmp"
+            install -m 600 "$tmp" "$file"
+            rm -f "$tmp"
+          }
+
+          rewrite_env /opt/property-owner-pwa/.env
+          rewrite_env /opt/upravlenie-v3/.env
+
+          cd /opt/upravlenie-v3
+          docker compose -p upravlenie-v3 -f docker-compose.production.yml up -d --force-recreate --no-build
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/healthz | grep -q '"version":"3.0.0"'; then
+              break
+            fi
+            sleep 2
+            if [ "$attempt" -eq 30 ]; then
+              echo "healthcheck failed" >&2
+              exit 1
+            fi
+          done
+
+          login_json="$(printf '{"email":"owner","password":"%s"}' "$NEW_OWNER_PASSWORD")"
+          curl -fsS -H 'Content-Type: application/json' --data-binary "$login_json" http://127.0.0.1:8787/api/login | grep -q '"role":"owner"'
+
+          umask 077
+          printf 'owner\n%s\n' "$NEW_OWNER_PASSWORD" > /tmp/upravlenie-owner-credential.txt
+          REMOTE
+
+          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST:/tmp/upravlenie-owner-credential.txt" /tmp/upravlenie-owner-credential.txt
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" 'rm -f /tmp/upravlenie-owner-credential.txt'
+
+      - name: Encrypt credential for retrieval
+        run: |
+          cat > /tmp/owner-reset-public.pem <<'PUB'
+          -----BEGIN PUBLIC KEY-----
+          MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAvVqLV3jmTPVpo9nGzuR1
+          /zC16qkGczSfeJ0Am/yWgH8a3/JDTVC0MEi6o1ZCliZA6og6MX2GwDutZT5hA0Cr
+          +MFa36CJ4sHp2xs0GvZrGiRY6T0NrpulfXbgDu2PhZg9C6u47B8JQ1rNv9ePi7o4
+          frg97mzdWCflKeTougoUda//wP/w2nHyKTzniz9bqWA0mR7T5byKPhFjnKkLNlyN
+          gfjBbTOPUpPdfVe5J8H8bB5qBqY4LIUIw9ud9e6N5C/ZcciBYrPt+VOUGpHg4DGM
+          qp0ATy1Nd0ij0jve/XCVcLw771afAx6QFukd3uIq6Q/IkbkJ3A7Ms0saKK7mQanZ
+          GRoSR7P8Qs/QPpxmYa/8PyBVdzskUAG0+p44dnNG3/vLPA5pMd/E4D8Pch85VH+2
+          qiJgntwnzJR4OSabCY0Ntr5sQ67rVHumgo100AAsgBgPiskJvbFQ15gZuD+xmCwr
+          OwTCumOmL/a55yyatrWpUKJT9Ge2ffzUDwts46PjtYcXAgMBAAE=
+          -----END PUBLIC KEY-----
+          PUB
+          mkdir -p ops
+          openssl pkeyutl -encrypt -pubin -inkey /tmp/owner-reset-public.pem \
+            -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
+            -in /tmp/upravlenie-owner-credential.txt -out /tmp/upravlenie-owner-credential.bin
+          base64 -w 0 /tmp/upravlenie-owner-credential.bin > ops/owner-credential.enc
+          printf '\n' >> ops/owner-credential.enc
+          shred -u /tmp/upravlenie-owner-credential.txt || rm -f /tmp/upravlenie-owner-credential.txt
+          rm -f /tmp/upravlenie-owner-credential.bin /tmp/owner-reset-public.pem
+
+      - name: Store encrypted credential
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ops/owner-credential.enc
+          git commit -m "chore: store encrypted owner credential [skip ci]"
+          git push origin HEAD:recovery/v3-clean
