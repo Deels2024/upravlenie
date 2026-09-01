@@ -497,17 +497,40 @@ async function api(req,res,u){
   }
 
   if(req.method==='POST'&&u.pathname==='/api/staff'){
-    if(!canManageStaff(user))return json(res,403,{error:'FORBIDDEN'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}const email=String(b.email||'').trim().toLowerCase(),name=String(b.name||'').trim(),role=STAFF_ROLES.includes(b.role)?b.role:'manager';if(!email||!name)return json(res,422,{error:'REQUIRED_FIELDS'});if(db.users.some(x=>x.email===email))return json(res,409,{error:'EMAIL_EXISTS'});
-    const tempPassword=generateTempPassword(),permissions=uniqueStrings(Array.isArray(b.permissions)?b.permissions:ROLE_DEFAULTS[role],PERMISSIONS),buildingIds=uniqueStrings(b.buildingIds).filter(id=>db.buildings.some(x=>x.id===id));const account=createStoredUser('u'+crypto.randomBytes(5).toString('hex'),role,email,tempPassword,{name:name.slice(0,100),permissions,buildingIds});db.users.push(account);logSecurity(user.name,`Ð¡Ð¾Ð·Ð´Ð°Ð½ ÑÐ¾ÑÑÑÐ´Ð½Ð¸Ðº ${account.name} (${role})`);persist();return json(res,201,{user:publicUser(account),temporaryPassword:tempPassword});
+    if(!canManageStaff(user))return json(res,403,{error:'FORBIDDEN'});
+    let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}
+    const email=String(b.email||'').trim().toLowerCase(),name=String(b.name||'').trim(),role=STAFF_ROLES.includes(b.role)?b.role:'manager';
+    if(!email||!name)return json(res,422,{error:'REQUIRED_FIELDS'});
+    if(db.users.some(x=>x.email===email))return json(res,409,{error:'EMAIL_EXISTS'});
+    const requestedPassword=String(b.password||''),temporaryPassword=requestedPassword||generateTempPassword();
+    if(temporaryPassword.length<10)return json(res,422,{error:'PASSWORD_TOO_SHORT'});
+    const permissions=uniqueStrings(Array.isArray(b.permissions)?b.permissions:ROLE_DEFAULTS[role],PERMISSIONS);
+    const buildingIds=uniqueStrings(b.buildingIds).filter(id=>db.buildings.some(x=>x.id===id));
+    const account=createStoredUser('u'+crypto.randomBytes(5).toString('hex'),role,email,temporaryPassword,{name:name.slice(0,100),permissions,buildingIds});
+    db.users.push(account);logSecurity(user.name,`Создан сотрудник ${account.name} (${role})`);persist();
+    return json(res,201,{user:publicUser(account),temporaryPassword});
   }
   if(req.method==='PATCH'&&/^\/api\/staff\/[^/]+$/.test(u.pathname)){
-    if(!canManageStaff(user))return json(res,403,{error:'FORBIDDEN'});const id=decodeURIComponent(u.pathname.split('/')[3]||''),target=findUser(id);if(!target)return json(res,404,{error:'NOT_FOUND'});if(target.role==='owner')return json(res,403,{error:'OWNER_PROTECTED'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}
-    if('name'in b&&String(b.name).trim())target.name=String(b.name).trim().slice(0,100);if('role'in b&&STAFF_ROLES.includes(b.role)){target.role=b.role;if(!('permissions'in b))target.permissions=ROLE_DEFAULTS[b.role]||[];}if('permissions'in b)target.permissions=uniqueStrings(b.permissions,PERMISSIONS);if('buildingIds'in b)target.buildingIds=uniqueStrings(b.buildingIds).filter(x=>db.buildings.some(q=>q.id===x));
+    if(!canManageStaff(user))return json(res,403,{error:'FORBIDDEN'});
+    const id=decodeURIComponent(u.pathname.split('/')[3]||''),target=findUser(id);
+    if(!target)return json(res,404,{error:'NOT_FOUND'});
+    if(target.role==='owner')return json(res,403,{error:'OWNER_PROTECTED'});
+    let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}
+    if('name'in b&&String(b.name).trim())target.name=String(b.name).trim().slice(0,100);
+    if('email'in b){const email=String(b.email||'').trim().toLowerCase();if(!email)return json(res,422,{error:'REQUIRED_FIELDS'});if(db.users.some(x=>x.id!==target.id&&x.email===email))return json(res,409,{error:'EMAIL_EXISTS'});target.email=email;}
+    if('role'in b&&STAFF_ROLES.includes(b.role)){target.role=b.role;if(!('permissions'in b))target.permissions=ROLE_DEFAULTS[b.role]||[];}
+    if('permissions'in b)target.permissions=uniqueStrings(b.permissions,PERMISSIONS);
+    if('buildingIds'in b)target.buildingIds=uniqueStrings(b.buildingIds).filter(x=>db.buildings.some(q=>q.id===x));
+    if('password'in b){const password=String(b.password||'');if(password.length<10)return json(res,422,{error:'PASSWORD_TOO_SHORT'});setStoredPassword(target,password);terminateUserSessions(target.id);logSecurity(user.name,`Назначен новый пароль сотруднику ${target.name}`);}
     if('active'in b){target.active=!!b.active;if(!target.active){target.firedAt=nowIso();terminateUserSessions(target.id);}else target.firedAt='';}
-    logSecurity(user.name,`${target.active?'ÐÐ±Ð½Ð¾Ð²Ð»ÑÐ½':'ÐÑÐºÐ»ÑÑÑÐ½'} ÑÐ¾ÑÑÑÐ´Ð½Ð¸Ðº ${target.name}`);persist();return json(res,200,publicUser(target));
+    logSecurity(user.name,`${target.active?'Обновлён':'Отключён'} сотрудник ${target.name}`);persist();return json(res,200,publicUser(target));
   }
   if(req.method==='POST'&&/^\/api\/staff\/[^/]+\/reset-password$/.test(u.pathname)){
-    if(!canManageStaff(user))return json(res,403,{error:'FORBIDDEN'});const id=decodeURIComponent(u.pathname.split('/')[3]||''),target=findUser(id);if(!target||target.role==='owner')return json(res,404,{error:'NOT_FOUND'});const tempPassword=generateTempPassword(),salt=crypto.randomBytes(16).toString('hex');target.salt=salt;target.passwordHash=hashPassword(tempPassword,salt);terminateUserSessions(target.id);logSecurity(user.name,`Ð¡Ð±ÑÐ¾ÑÐµÐ½ Ð¿Ð°ÑÐ¾Ð»Ñ ÑÐ¾ÑÑÑÐ´Ð½Ð¸ÐºÐ° ${target.name}`);persist();return json(res,200,{temporaryPassword:tempPassword});
+    if(!canManageStaff(user))return json(res,403,{error:'FORBIDDEN'});
+    const id=decodeURIComponent(u.pathname.split('/')[3]||''),target=findUser(id);
+    if(!target||target.role==='owner')return json(res,404,{error:'NOT_FOUND'});
+    const temporaryPassword=generateTempPassword();setStoredPassword(target,temporaryPassword);terminateUserSessions(target.id);
+    logSecurity(user.name,`Создан временный пароль сотруднику ${target.name}`);persist();return json(res,200,{temporaryPassword});
   }
   if(req.method==='POST'&&u.pathname==='/api/routing-rules'){
     if(!canManageStaff(user))return json(res,403,{error:'FORBIDDEN'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}const buildingId=String(b.buildingId||'*'),category=String(b.category||'ÐÑÑÐ³Ð¾Ðµ').slice(0,60),ru=findUser(b.responsibleUserId);if(buildingId!=='*'&&!db.buildings.some(x=>x.id===buildingId))return json(res,422,{error:'BAD_BUILDING'});if(!ru||ru.active===false||ru.role==='tenant')return json(res,422,{error:'BAD_RESPONSIBLE'});let rule=db.routingRules.find(r=>r.buildingId===buildingId&&r.category===category);if(rule){rule.responsibleUserId=ru.id;rule.active=true;}else{rule={id:'rr'+crypto.randomBytes(4).toString('hex'),buildingId,category,responsibleUserId:ru.id,active:true};db.routingRules.push(rule);}logSecurity(user.name,`ÐÐ°ÑÑÑÑÑ ${category} â ${ru.name}`);persist();return json(res,200,rule);
