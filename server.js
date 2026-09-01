@@ -24,7 +24,7 @@ const OWNER_PASSWORD = String(process.env.OWNER_PASSWORD || '');
 const PERMISSIONS = [
   'dashboard_view','buildings_view','tenants_view','tenants_manage','issues_view','issues_edit',
   'inspections_view','inspections_create','equipment_view','metrics_view','expenses_view',
-  'staff_manage','security_view'
+  'security_view'
 ];
 const ROLE_DEFAULTS = {
   admin:['dashboard_view','buildings_view','tenants_view','tenants_manage','issues_view','issues_edit','inspections_view','inspections_create','equipment_view','metrics_view','expenses_view','security_view'],
@@ -316,7 +316,7 @@ function serveStatic(req,res,urlPath){
   const ext=path.extname(file).toLowerCase();const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json; charset=utf-8','.svg':'image/svg+xml'};const noStore=rel.endsWith('index.html')||rel.endsWith('sw.js');res.writeHead(200,{'Content-Type':types[ext]||'application/octet-stream','Cache-Control':noStore?'no-store':'public, max-age=3600'});res.end(data);
 }
 function terminateUserSessions(userId){for(const [sid,s] of sessions)if(s.userId===userId)sessions.delete(sid);}
-function canManageStaff(user){return user.role==='owner'||hasPerm(user,'staff_manage');}
+function canManageStaff(user){return user.role==='owner';}
 function calculateAdminStats(){
   const staff=db.users.filter(u=>STAFF_ROLES.includes(u.role));
   const activeStaff=staff.filter(u=>u.active!==false);
