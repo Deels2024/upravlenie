@@ -141,3 +141,82 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
   .table th{font-size:12px}
   .table td{font-size:14px}
 }
+
+
+/* v3.2 — object cards and mobile management */
+.building-card{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:stretch;
+  gap:12px;
+  padding:12px;
+  border:1px solid var(--line);
+  border-radius:18px;
+  background:linear-gradient(145deg,#0c192a,#0a1523);
+}
+.building-card:hover{border-color:#426486}
+.building-card .building{
+  width:100%;
+  min-width:0;
+  border:0;
+  border-radius:13px;
+  padding:8px;
+  background:transparent;
+  color:var(--text);
+  text-align:left;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:16px;
+}
+.building-card .building:hover{background:#102238}
+.building-top{display:flex;align-items:center;min-width:0}
+.building-top b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+.chips span{padding:5px 8px;border-radius:999px;background:#172b43;color:#d7e2ef;font-size:11px;line-height:1.2}
+.building-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+  padding-left:12px;
+  border-left:1px solid var(--line);
+}
+.btn-compact{min-height:38px;padding:9px 12px;font-size:12px;white-space:nowrap}
+.building-card.archived{opacity:.92}
+.building-card.archived .status-dot{background:#8293a9}
+@media(max-width:800px){
+  .card-body{padding:12px}
+  .building-list{gap:12px}
+  .building-card{grid-template-columns:1fr;padding:11px;gap:10px}
+  .building-card .building{grid-template-columns:1fr auto;padding:4px;gap:10px}
+  .building-card .metric-mini{text-align:right;min-width:58px}
+  .building-card .metric-mini strong{display:block}
+  .building-card .metric-mini span{display:block;font-size:11px;color:var(--muted)}
+  .building-actions{
+    width:100%;
+    padding:10px 0 0;
+    border-left:0;
+    border-top:1px solid var(--line);
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .building-actions .btn{width:100%;min-width:0;white-space:normal}
+  .subhead .action-row{display:grid;grid-template-columns:1fr;width:100%}
+  .subhead .action-row .btn{width:100%}
+  .modal-actions{
+    position:sticky;
+    bottom:0;
+    z-index:2;
+    padding:12px 14px calc(12px + env(safe-area-inset-bottom));
+    background:#0b1727;
+    display:grid;
+    grid-template-columns:1fr;
+  }
+  .modal-actions .btn{width:100%;min-width:0;white-space:normal}
+}
+@media(max-width:420px){
+  .building-card .building{grid-template-columns:1fr}
+  .building-card .metric-mini{text-align:left;display:flex;gap:6px;align-items:baseline}
+  .chips span{font-size:10px}
+}
