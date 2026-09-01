@@ -82,3 +82,62 @@ button,input,select,textarea{font:inherit} button{cursor:pointer}.hidden{display
 /* v3-clean mobile PWA */
 html{overscroll-behavior-y:none;-webkit-text-size-adjust:100%}body{-webkit-tap-highlight-color:transparent}button,a,input,select,textarea{touch-action:manipulation}
 @media(max-width:800px){body{padding-top:env(safe-area-inset-top)}.content{padding-bottom:calc(82px + env(safe-area-inset-bottom))!important}.mobile-nav{padding-bottom:calc(7px + env(safe-area-inset-bottom))!important}.field input,.field select,.field textarea{font-size:16px;min-height:48px}.btn{min-height:44px}.modal-backdrop{align-items:flex-end;padding:0}.modal{width:100%;max-height:calc(94dvh - env(safe-area-inset-top));border-radius:22px 22px 0 0;padding-bottom:env(safe-area-inset-bottom)}.form-grid{grid-template-columns:1fr!important}.form-grid .span2{grid-column:auto!important}.action-row{flex-wrap:wrap}.action-row .btn{flex:1 1 auto}.table-wrap{overflow-x:auto}}
+
+
+/* v3.1 — readability and contrast audit */
+:root{
+  --panel:#0f1c2e;
+  --panel2:#14243a;
+  --line:#30445f;
+  --text:#f8fbff;
+  --muted:#b7c5d8;
+}
+body{font-size:15px;line-height:1.5}
+::placeholder{color:#8497af;opacity:1}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{
+  outline:3px solid rgba(89,214,255,.42);
+  outline-offset:2px;
+}
+.nav button{color:#c0ccdc}
+.nav .badge{color:#f0f5fb;background:#2d4664}
+.user-role,.subhead p,.stat-foot,.building-address,.issue small,.empty,.hero-tenant p,
+.log-row .time,.section-title p,.field-help,.check-row small,.compare-meta span,
+.compare-placeholder span,.report-signature span,.event-head small,.tenant-acceptance p,
+.inspection-plan p,.inspection-plan-date small,.inspection-mini span,.tenant-check-head span,
+.perm small,.route-row span,.workload-card>span,.notification-row span{
+  color:var(--muted);
+}
+.stat-label,.metric-mini .k,.info-item .k,.security-card span{
+  color:#b9c7d8;
+}
+.table th{color:#b7c5d8;font-size:12px;font-weight:800}
+.table td{color:#eef4fb}
+.link-btn{color:#73dcff;text-decoration-thickness:1px;text-underline-offset:3px}
+.link-btn:hover{text-decoration:underline;color:#a7ebff}
+.field label{color:#d0d9e6;font-size:14px}
+.field input,.field select,.field textarea{background:#0a1727;border-color:#354b68}
+.btn-secondary{background:#1c3049;color:#f5f8fc;border-color:#3a5372}
+.btn-ghost{color:#e3ebf5;border-color:#3a506e}
+.icon-btn{color:#eef4fb;border-color:#344b68}
+.tag{color:#e0e9f4;background:#203754}
+.progress-row{color:#bfccdc}
+.warning{color:#ffebbd}
+.photo-tile span{color:#c4d0df;font-size:12px}
+.report-recorded{color:#aebdd0;font-size:12px}
+.event-signer{color:#bdcada}
+.tenant-check p,.inspection-finding p,.notification-row p{color:#dbe5f0}
+.inspection-plan span,.inspection-sign span,.inspection-finding span,.workload-card>span,
+.report-signature span,.tenant-acceptance span{font-size:11px}
+.inspection-plan p,.inspection-plan-date small,.inspection-mini span,.tenant-check-head span,
+.route-row span,.perm small,.notification-row span{font-size:12px}
+.muted{color:#b7c5d8;font-size:12px}
+.mobile-nav button{color:#aebdd0;font-size:11px;font-weight:700}
+.mobile-nav button.active{color:#78ddff}
+.notification-row.unread{border-color:#438bb0;background:#10283c}
+.tenant-check.not_checked{opacity:1;border-style:dashed}
+@media(max-width:800px){
+  body{font-size:15px}
+  .mobile-nav button{min-height:48px}
+  .table th{font-size:12px}
+  .table td{font-size:14px}
+}
