@@ -136,6 +136,30 @@ function ensureDataShape(){
   }
   if(PROD&&!OWNER_PASSWORD) throw new Error('Production startup refused: OWNER_PASSWORD environment variable is required');
 
+  // One-time production cleanup: remove legacy/test employee accounts while preserving
+  // owner, tenants, buildings and all operational records.
+  if(!db.meta||typeof db.meta!=='object')db.meta={};
+  if(!db.meta.staffCleanStartV1){
+    const removedStaff=db.users.filter(u=>STAFF_ROLES.includes(u.role));
+    const removedIds=new Set(removedStaff.map(u=>u.id));
+    db.users=db.users.filter(u=>!removedIds.has(u.id));
+    for(const building of db.buildings){
+      if(removedIds.has(building.managerUserId)){building.managerUserId='';building.manager='';}
+    }
+    for(const issue of db.issues){
+      if(removedIds.has(issue.responsibleUserId)){
+        issue.responsibleUserId='';issue.responsible='';
+        if(issue.status==='assigned')issue.status='new';
+      }
+      if(removedIds.has(issue.curatorUserId)){issue.curatorUserId='';issue.curator='';}
+    }
+    for(const plan of db.inspectionPlans)if(removedIds.has(plan.inspectorUserId))plan.inspectorUserId='';
+    db.routingRules=db.routingRules.filter(rule=>!removedIds.has(rule.responsibleUserId));
+    db.notifications=db.notifications.filter(note=>!removedIds.has(note.userId));
+    db.meta.staffCleanStartV1={at:nowIso(),removed:removedStaff.length};
+    if(removedStaff.length)logSecurity(owner.name,`Удалены тестовые учётные записи сотрудников: ${removedStaff.length}. Объекты и рабочая история сохранены.`);
+  }
+
   const nameToUser=new Map(db.users.map(u=>[u.name,u]));
   for(const b of db.buildings){
     if(!b.managerUserId){ const u=nameToUser.get(b.manager); if(u) b.managerUserId=u.id; }
