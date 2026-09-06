@@ -284,3 +284,5 @@ form[aria-busy="true"]{opacity:.8}
  .staff-table td[data-label]::before{content:attr(data-label);display:block;font-size:11px;color:var(--muted);margin-bottom:4px}
  .chips span{font-size:12px}
 }
+
+.expense-cards{grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr))}.expense-card{min-width:0}.expense-card .card-head{flex-wrap:wrap;gap:12px}.expense-card h3{overflow-wrap:anywhere}.expense-lines{margin:0 0 16px}.expense-lines>div{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line)}.expense-lines dd{margin:0;white-space:nowrap}.expense-total{font-size:18px}.form-status[data-state="error"]{background:#fff0ed;color:#8f281b}.form-status[data-state="saving"]{background:#fff5db;color:#654800}

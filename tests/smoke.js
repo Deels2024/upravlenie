@@ -9,7 +9,7 @@ async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${ur
 (async()=>{try{
   for(let i=0;i<50;i++){try{const x=await req('/healthz');if(x.r.ok)break}catch{}await sleep(100)}
   let x=await req('/healthz');if(x.data.version!=='3.0.0')throw Error('bad health version');
-  const release=await req('/version.json');if(!release.r.ok||release.data.version!=='3.5.0'||release.r.headers.get('cache-control')!=='no-store')throw Error('release version or cache policy incorrect');
+  const release=await req('/version.json');if(!release.r.ok||release.data.version!=='3.6.0'||release.r.headers.get('cache-control')!=='no-store')throw Error('release version or cache policy incorrect');
   const html=await (await fetch(`http://127.0.0.1:${port}/`)).text();if(!html.includes('/app.js?v='+release.data.version)||!html.includes('/app.css?v='+release.data.version))throw Error('shell version mismatch');
   x=await req('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:env.OWNER_LOGIN,password:env.OWNER_PASSWORD})});if(!x.r.ok)throw Error('owner login failed '+JSON.stringify(x.data));
   const cookie=(x.r.headers.get('set-cookie')||'').split(';')[0],csrf=x.data.csrf,headers={'content-type':'application/json','cookie':cookie,'x-csrf-token':csrf};
@@ -37,6 +37,32 @@ async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${ur
     assert.equal((await patch('/api/staff/'+worker.id,{password:'Other-Password!'},h)).r.status,403,'staff cannot reset passwords');
     assert.deepEqual((await req('/api/buildings',{headers:h})).data.map(x=>x.id),[a]);
   }
+  const inspector=(await post('/api/staff',{name:'Инспектор Б',email:'inspector-b',password:pwd,role:'inspector',buildingIds:[b]})).data.user;
+  const originalPlan=(await req('/api/inspection-plans',{headers})).data.find(p=>p.buildingId===a);
+  for(const invalid of [{frequencyDays:14,inspectorUserId:'missing'},{frequencyDays:14,inspectorUserId:inspector.id},{frequencyDays:14,inspectorUserId:worker.id},{frequencyDays:'bad'},{frequencyDays:2.5},{frequencyDays:0},{nextDue:'2026-02-30'},{nextDue:''}]){
+    assert.equal((await patch('/api/inspection-plans/'+a,invalid)).r.status,422);
+    assert.deepEqual((await req('/api/inspection-plans',{headers})).data.find(p=>p.buildingId===a),originalPlan,'invalid plan update is atomic');
+  }
+  assert.equal((await patch('/api/inspection-plans/'+b,{frequencyDays:14,inspectorUserId:inspector.id})).r.status,200);
+  assert.equal((await req('/api/inspection-plans',{headers})).data.find(p=>p.buildingId===b).inspectorName,'Инспектор Б');
+  assert.equal((await patch('/api/inspection-plans/'+b,{inspectorUserId:''})).data.inspectorUserId,'','inspector may be cleared');
+  assert.equal((await patch('/api/inspection-plans/'+a,{frequencyDays:14},wh)).r.status,403);
+  const assignees=(await req('/api/assignees',{headers})).data;
+  assert.ok(assignees.some(u=>u.id===worker.id));assert.ok(!assignees.some(u=>u.id===inspector.id),'inspector without issue-edit permission is not offered');
+  assert.equal((await post('/api/routing-rules',{buildingId:b,category:'Протечка',responsibleUserId:worker.id})).r.status,422);
+  assert.equal((await post('/api/routing-rules',{buildingId:'*',category:'Протечка',responsibleUserId:inspector.id})).r.status,422);
+  assert.equal((await post('/api/routing-rules',{buildingId:'*',category:'Электрика',responsibleUserId:twin.id})).r.status,200);
+  assert.equal((await req('/api/assignees',{headers:wh})).data.some(u=>u.id===inspector.id),false);
+  const expensePayload={buildingId:a,month:'2026-09',electricity:10.1,water:0.2,repair:100,clientRequestId:'expense-retry'};
+  const expense=await post('/api/expenses',expensePayload);assert.equal(expense.r.status,201);assert.equal(expense.data.total,110.3);
+  assert.equal((await post('/api/expenses',expensePayload)).data.id,expense.data.id,'expense retry is idempotent');
+  assert.equal((await post('/api/expenses',{...expensePayload,clientRequestId:''})).r.status,409,'one expense summary per object/month');
+  for(const invalid of [{electricity:-1},{water:'bad'},{month:'2026-13'},{buildingId:b}])assert.equal((await patch('/api/expenses/'+expense.data.id,invalid)).r.status,422);
+  assert.equal((await req('/api/expenses',{headers})).data[0].total,110.3,'invalid costs leave totals intact');
+  assert.equal((await patch('/api/expenses/'+expense.data.id,{repair:200})).data.total,210.3);
+  for(const method of ['POST','PATCH','DELETE'])assert.equal((await req('/api/expenses'+(method==='POST'?'':'/'+expense.data.id),{method,headers:wh,body:method==='DELETE'?undefined:JSON.stringify(expensePayload)})).r.status,403,'owner-only expense writes');
+  assert.equal((await req('/api/expenses/'+expense.data.id,{method:'DELETE',headers})).r.status,200);
+  assert.equal((await req('/api/expenses',{headers})).data.length,0);
   const failed=await patch('/api/staff/'+worker.id,{name:'MUTATED',email:'changed',password:'short'});
   assert.equal(failed.r.status,422);
   let account=(await req('/api/admin',{headers})).data.users.find(x=>x.id===worker.id);
@@ -57,6 +83,12 @@ async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${ur
   assert.equal((await patch('/api/issues/'+issue.id,{status:'done'})).r.status,422,'photo workflow required');
   assert.equal((await post('/api/issues',{buildingId:a,title:'Bypass report',status:'done'})).r.status,422);
   const tenant=(await post('/api/tenants',{buildingId:b,company:'Tenant B',area:10})).data;
+  assert.equal((await patch('/api/tenants/'+tenant.id,{company:'Tenant renamed',phone:'+7 000',area:12.5})).r.status,200);
+  for(const invalid of [{company:'MUTATED',area:-2},{company:'MUTATED',area:'bad'},{buildingId:a},{floor:2.3},{startDate:'2026-02-30'}])assert.equal((await patch('/api/tenants/'+tenant.id,invalid)).r.status,422);
+  assert.equal((await req('/api/tenants',{headers})).data.find(t=>t.id===tenant.id).company,'Tenant renamed','invalid tenant edit is atomic');
+  assert.equal((await patch('/api/tenants/'+tenant.id,{phone:'other'},wh)).r.status,403);
+  const restricted=(await post('/api/staff',{name:'Manager A',email:'manager-a',password:pwd,role:'admin',buildingIds:[a]})).data.user;
+  const mh=await login('manager-a',pwd);assert.equal((await patch('/api/tenants/'+tenant.id,{phone:'other'},mh)).r.status,403,'cannot edit tenant of inaccessible building');
   assert.equal((await post('/api/issues',{buildingId:a,tenantId:tenant.id,title:'Wrong tenant'})).r.status,422);
   assert.equal((await post('/api/issues',{buildingId:'missing',title:'Missing building'})).r.status,403);
   const report={clientRequestId:'report-retry-1',author:'Исполнитель',text:'Работа выполнена',markDone:true,photos:[{name:'result.png',type:'image/png',data:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP1sAAAAASUVORK5CYII='}]};

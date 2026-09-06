@@ -1,0 +1,16 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+USER root
+WORKDIR /app
+RUN rm -rf /app/public /app/src /app/scripts /app/tests /app/server.js /app/package.json
+COPY --chown=app:app package.json server.js ./
+COPY --chown=app:app src ./src
+COPY --chown=app:app public ./public
+COPY --chown=app:app scripts ./scripts
+COPY --chown=app:app tests ./tests
+COPY --chown=app:app data/app-data.json ./data/app-data.json
+RUN mkdir -p /app/data /app/private_uploads /app/backups && chown -R app:app /app
+USER app
+EXPOSE 8787
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD node -e "fetch('http://127.0.0.1:8787/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+CMD ["node","--no-warnings","server.js"]

@@ -59,7 +59,7 @@ docker compose build --pull
 docker compose up -d --remove-orphans
 
 for i in $(seq 1 60); do
-  if curl -fsS http://127.0.0.1:8787/healthz >/dev/null 2>&1; then break; fi
+  if curl --max-time 5 -fsS http://127.0.0.1:8787/healthz >/dev/null 2>&1 && curl --max-time 5 -fsS http://127.0.0.1:8787/version.json | cmp -s - public/version.json; then break; fi
   sleep 1
   if [ "$i" -eq 60 ]; then
     echo "Сервис не прошёл healthcheck. Смотрите: docker compose logs" >&2
@@ -70,10 +70,12 @@ done
 IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
 echo
 echo "=============================================="
-echo "Owner Property успешно запущен"
+echo "Owner Property успешно запущен; версия проверена:"
+cat public/version.json
 echo "URL: http://${IP:-SERVER_IP}:8787/"
 echo "Логин владельца: ${OWNER_LOGIN:-owner}"
 echo "Пароль владельца: ${OWNER_PASSWORD}"
 echo "=============================================="
 echo
 echo "Сохраните пароль в менеджере паролей. Для внешнего доступа рекомендуется привязать домен и включить HTTPS."
+

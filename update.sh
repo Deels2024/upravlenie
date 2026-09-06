@@ -4,11 +4,13 @@ cd "$(dirname "$0")"
 docker compose build --pull
 docker compose up -d --remove-orphans
 for i in $(seq 1 60); do
-  if curl -fsS http://127.0.0.1:8787/healthz | grep -q '"version":"3.0.0"'; then
-    echo "Owner Property v3.0.0 обновлён успешно"
+  if curl --max-time 5 -fsS http://127.0.0.1:8787/healthz >/dev/null && curl --max-time 5 -fsS http://127.0.0.1:8787/version.json | cmp -s - public/version.json; then
+    echo "Owner Property обновлён, опубликованная версия проверена:"
+    cat public/version.json
     exit 0
   fi
   sleep 1
 done
-echo "Healthcheck v3.0.0 не пройден" >&2
+echo "Проверка приложения или опубликованной версии не пройдена" >&2
 exit 1
+
