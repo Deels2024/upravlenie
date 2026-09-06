@@ -1,5 +1,5 @@
-const CACHE='owner-property-shell-v3.6.0';
-const SHELL=['/','/app.css?v=3.6.0','/app.js?v=3.6.0','/form-safety.js?v=3.6.0','/manifest.webmanifest','/icon.svg'];
+const CACHE='owner-property-shell-v3.7.0';
+const SHELL=['/','/app.css?v=3.7.0','/app.js?v=3.7.0','/form-safety.js?v=3.7.0','/manifest.webmanifest','/icon.svg'];
 
 self.addEventListener('install',event=>{
   self.skipWaiting();

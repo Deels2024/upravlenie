@@ -5,18 +5,22 @@ function digest(file){return crypto.createHash('sha256').update(fs.readFileSync(
 function filesIn(dir,prefix=''){
  if(!fs.existsSync(dir))return [];
  return fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>{
-  if(e.isSymbolicLink())throw Error('Backup must not contain symbolic links');
+  if(!e.isDirectory()&&!e.isFile())throw Error('Backup must not contain symbolic links');
   const rel=path.posix.join(prefix,e.name),file=path.join(dir,e.name);
   return e.isDirectory()?filesIn(file,rel):[{path:rel,size:fs.statSync(file).size,sha256:digest(file)}];
  });
 }
 function verifyBackup(dir){
+ if(fs.lstatSync(dir).isSymbolicLink())throw Error('Backup directory must not be a symbolic link');
+ const actualFiles=filesIn(dir);
  const info=JSON.parse(fs.readFileSync(path.join(dir,'BACKUP_INFO.json'),'utf8'));
+ const actual=new Map(actualFiles.map(f=>[f.path,f]));
  if(info.format!==1||!Array.isArray(info.files)||!info.files.some(f=>f.path==='app.db'))throw Error('Invalid backup manifest');
  for(const f of info.files){
   if(typeof f.path!=='string'||f.path.split('/').includes('..')||path.isAbsolute(f.path))throw Error('Unsafe backup path');
-  const file=path.join(dir,f.path);
-  if(!fs.existsSync(file)||fs.statSync(file).size!==f.size||digest(file)!==f.sha256)throw Error('Backup file verification failed: '+f.path);
+  if(!actual.has(f.path))throw Error('Backup file is not a regular file');
+  const file=actual.get(f.path);
+  if(file.size!==f.size||file.sha256!==f.sha256)throw Error('Backup file verification failed: '+f.path);
  }
  const db=new DatabaseSync(path.join(dir,'app.db'),{readOnly:true});
  try{
