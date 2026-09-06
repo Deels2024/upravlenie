@@ -9,6 +9,8 @@ async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${ur
 (async()=>{try{
   for(let i=0;i<50;i++){try{const x=await req('/healthz');if(x.r.ok)break}catch{}await sleep(100)}
   let x=await req('/healthz');if(x.data.version!=='3.0.0')throw Error('bad health version');
+  const release=await req('/version.json');if(!release.r.ok||release.data.version!=='3.4.0'||release.r.headers.get('cache-control')!=='no-store')throw Error('release version or cache policy incorrect');
+  const html=await (await fetch(`http://127.0.0.1:${port}/`)).text();if(!html.includes('/app.js?v='+release.data.version)||!html.includes('/app.css?v='+release.data.version))throw Error('shell version mismatch');
   x=await req('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:env.OWNER_LOGIN,password:env.OWNER_PASSWORD})});if(!x.r.ok)throw Error('owner login failed '+JSON.stringify(x.data));
   const cookie=(x.r.headers.get('set-cookie')||'').split(';')[0],csrf=x.data.csrf,headers={'content-type':'application/json','cookie':cookie,'x-csrf-token':csrf};
   x=await req('/api/buildings',{headers:{cookie}});if(!x.r.ok||x.data.length!==0)throw Error('fresh database is not empty');

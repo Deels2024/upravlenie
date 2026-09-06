@@ -294,7 +294,7 @@ function serveStatic(req,res,urlPath){
   let rel=urlPath==='/'?'/index.html':urlPath;rel=rel.split('?')[0];const file=path.normalize(path.join(PUBLIC_DIR,rel));
   if(!file.startsWith(PUBLIC_DIR))return text(res,403,'Forbidden');
   let data;try{data=fs.readFileSync(file);}catch{return text(res,404,'Not found');}
-  const ext=path.extname(file).toLowerCase();const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json; charset=utf-8','.svg':'image/svg+xml'};const noStore=rel.endsWith('index.html')||rel.endsWith('sw.js');res.writeHead(200,{'Content-Type':types[ext]||'application/octet-stream','Cache-Control':noStore?'no-store':'public, max-age=3600'});res.end(data);
+  const ext=path.extname(file).toLowerCase();const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json; charset=utf-8','.svg':'image/svg+xml'};const noStore=rel.endsWith('index.html')||rel.endsWith('sw.js')||rel.endsWith('version.json');res.writeHead(200,{'Content-Type':types[ext]||'application/octet-stream','Cache-Control':noStore?'no-store':'public, max-age=3600'});res.end(data);
 }
 function terminateUserSessions(userId){for(const [sid,s] of sessions)if(s.userId===userId)sessions.delete(sid);}
 function canManageStaff(user){return user.role==='owner';}
