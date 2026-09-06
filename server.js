@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { URL } = require('url');
 const { DatabaseSync } = require('node:sqlite');
 
+const {remindersFor}=require('./src/reminders');
 const config = require('./src/config')(__dirname);
 const {PORT,HOST,PROD,COOKIE_SECURE,PUBLIC_DIR,DATA_FILE,PRIVATE_ROOT,DB_FILE}=config;
 const ISSUE_UPLOAD_DIR = path.join(PRIVATE_ROOT, 'issues');
@@ -210,9 +211,10 @@ function savePhotos(dirRoot,entityId,photoStore,photos,metaBase={}){
   const list=Array.isArray(photos)?photos:[];
   if(list.length>5) throw new Error('TOO_MANY_IMAGES');
   const dir=path.join(dirRoot,entityId); fs.mkdirSync(dir,{recursive:true,mode:0o700});
+  const decoded=list.map(decodeImagePayload);
   const saved=[];
-  for(const photo of list){
-    const {mime,buf,ext}=decodeImagePayload(photo);
+  for(let index=0;index<list.length;index++){
+    const photo=list[index],{mime,buf,ext}=decoded[index];
     const id='p'+crypto.randomBytes(8).toString('hex'); const file=id+ext;
     fs.writeFileSync(path.join(dir,file),buf,{mode:0o600});
     const meta={id,originalName:String(photo?.name||'photo').slice(0,120),mime,at:nowIso(),file,...metaBase};
@@ -243,6 +245,9 @@ function routeUser(buildingId,category){
   return eligibleAssignee(u,buildingId)?u:null;
 }
 function createIssueFromPayload(payload,actorUser,options={}){
+  const requestId=String(payload.clientRequestId||'').slice(0,100);
+  if(requestId){const existing=db.issues.find(i=>i.clientRequestId===requestId&&i.createdByUserId===actorUser?.id);if(existing){if(!canSeeIssue(actorUser,existing))throw Error('FORBIDDEN');return existing;}}
+  const photos=Array.isArray(payload.photos)?payload.photos:[];if(photos.length>5)throw Error('TOO_MANY_IMAGES');photos.forEach(decodeImagePayload);
   const tenantId=payload.tenantId||null;
   const tenant=tenantId?db.tenants.find(t=>t.id===tenantId):null;
   const buildingId=payload.buildingId || tenant?.buildingId;
@@ -258,7 +263,7 @@ function createIssueFromPayload(payload,actorUser,options={}){
   const curator=findUser(payload.curatorUserId) || findUser(db.buildings.find(b=>b.id===buildingId)?.managerUserId);
   const createdAt=nowIso();
   const item=ensureIssueShape({
-    id:'i'+crypto.randomBytes(4).toString('hex'),buildingId,tenantId,title:String(payload.title).trim().slice(0,160),category,
+    id:'i'+crypto.randomBytes(4).toString('hex'),clientRequestId:requestId,createdByUserId:actorUser?.id||'',buildingId,tenantId,title:String(payload.title).trim().slice(0,160),category,
     priority:['low','normal','high','critical'].includes(payload.priority)?payload.priority:'normal',
     status:payload.status|| (responsible?'assigned':'new'),reporter:String(payload.reporter||actorUser?.name||'Система').slice(0,80),
     curator:curator?.name||String(payload.curator||'').slice(0,80),curatorUserId:curator?.id||'',
@@ -266,6 +271,7 @@ function createIssueFromPayload(payload,actorUser,options={}){
     due:String(payload.due||''),created:createdAt.slice(0,10),createdAt,cost:Number(payload.cost||0),result:'',sourceInspectionId:options.sourceInspectionId||'',
     timeline:[{at:createdAt,actor:actorUser?.name||'Система',text:options.sourceInspectionId?'Проблема создана автоматически из осмотра':'Заявка создана'}]
   });
+  if(photos.length)saveIssuePhotos(item,photos,'problem',actorUser?.name);
   if(responsible){item.timeline.push({at:createdAt,actor:'Система',text:`Автоматически назначен ответственный: ${responsible.name}`});notifyUser(responsible.id,'Новая проблема назначена вам',item.title,{issueId:item.id,buildingId:item.buildingId});}
   db.issues.unshift(item); return item;
 }
@@ -297,6 +303,14 @@ function serveStatic(req,res,urlPath){
   const ext=path.extname(file).toLowerCase();const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json; charset=utf-8','.svg':'image/svg+xml'};const noStore=rel.endsWith('index.html')||rel.endsWith('sw.js')||rel.endsWith('version.json');res.writeHead(200,{'Content-Type':types[ext]||'application/octet-stream','Cache-Control':noStore?'no-store':'public, max-age=3600'});res.end(data);
 }
 function terminateUserSessions(userId){for(const [sid,s] of sessions)if(s.userId===userId)sessions.delete(sid);}
+function deadlineReminders(user){
+ const today=new Intl.DateTimeFormat('en-CA',{timeZone:process.env.APP_TIME_ZONE||'Europe/Moscow'}).format(new Date());
+ return remindersFor(db,user,{canSeeIssue,canAccessBuilding,hasPerm},today);
+}
+function notificationVisible(user,n){
+ if(n.issueId){const issue=db.issues.find(i=>i.id===n.issueId);return !!issue&&canSeeIssue(user,issue);}
+ return !n.buildingId||canAccessBuilding(user,n.buildingId);
+}
 function canManageStaff(user){return user.role==='owner';}
 function calculateAdminStats(){
   const staff=db.users.filter(u=>STAFF_ROLES.includes(u.role));
@@ -350,8 +364,25 @@ async function api(req,res,u){
     if(isTenant(user)||(!hasPerm(user,'issues_edit')&&!hasPerm(user,'inspections_create')&&user.role!=='owner'))return json(res,403,{error:'FORBIDDEN'});
     const allowed=allowedBuildingSet(user);const rows=db.users.filter(x=>x.active!==false&&x.role!=='tenant'&&x.role!=='owner'&&(user.role==='owner'||(x.buildingIds||[]).some(id=>allowed.has(id)))).map(x=>({id:x.id,name:x.name,role:x.role,buildingIds:x.buildingIds||[]}));return json(res,200,rows);
   }
-  if(req.method==='GET'&&u.pathname==='/api/notifications'){return json(res,200,db.notifications.filter(n=>n.userId===user.id).slice(0,50));}
-  if(req.method==='POST'&&u.pathname==='/api/notifications/read'){let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}const ids=Array.isArray(b.ids)?b.ids.map(String):[];const at=nowIso();for(const n of db.notifications)if(n.userId===user.id&&(ids.length===0||ids.includes(n.id)))n.readAt=n.readAt||at;persist();return json(res,200,{ok:true});}
+  if(req.method==='GET'&&u.pathname==='/api/backup-status'){
+    if(user.role!=='owner')return json(res,403,{error:'FORBIDDEN'});
+    const dir=process.env.BACKUP_DIR;
+    try{const names=fs.readdirSync(dir,{withFileTypes:true}).filter(e=>e.isDirectory()&&e.name.startsWith('owner-property-')).map(e=>e.name).sort().reverse();
+      const info=names.length?JSON.parse(fs.readFileSync(path.join(dir,names[0],'BACKUP_INFO.json'),'utf8')):null;
+      return json(res,200,{configured:true,lastBackupAt:info?.createdAt||null,verifiedAtCreation:info?.format===1,count:names.length});
+    }catch{return json(res,200,{configured:!!dir,lastBackupAt:null,verifiedAtCreation:false,count:0});}
+  }
+  if(req.method==='GET'&&u.pathname==='/api/notifications'){
+    return json(res,200,[...deadlineReminders(user),...db.notifications.filter(n=>n.userId===user.id&&notificationVisible(user,n))].slice(0,100));
+  }
+  if(req.method==='POST'&&u.pathname==='/api/notifications/read'){
+    let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}
+    const ids=Array.isArray(b.ids)?b.ids.map(String):[],at=nowIso();
+    for(const n of db.notifications)if(n.userId===user.id&&(ids.length===0||ids.includes(n.id)))n.readAt=n.readAt||at;
+    if(!db.reminderReads)db.reminderReads={};const reminders=deadlineReminders(user),old=db.reminderReads[user.id]||{};
+    db.reminderReads[user.id]=Object.fromEntries(reminders.filter(n=>old[n.id]||!ids.length||ids.includes(n.id)).map(n=>[n.id,old[n.id]||at]));
+    persist();return json(res,200,{ok:true});
+  }
   if(req.method==='GET'&&u.pathname==='/api/buildings'){
     if(u.searchParams.get('archived')==='1'){
       if(user.role!=='owner')return json(res,403,{error:'FORBIDDEN'});
@@ -361,7 +392,8 @@ async function api(req,res,u){
   }
   if(req.method==='POST'&&u.pathname==='/api/buildings'){
     if(user.role!=='owner')return json(res,403,{error:'FORBIDDEN'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}
-    let item;try{item=normalizeBuildingPayload(b,{id:'b'+crypto.randomBytes(5).toString('hex'),createdAt:nowIso(),archivedAt:''});}catch(e){return json(res,422,{error:e.message});}
+    const requestId=String(b.clientRequestId||'').slice(0,100);if(requestId){const existing=db.buildings.find(x=>x.clientRequestId===requestId);if(existing)return json(res,201,existing);}
+    let item;try{item=normalizeBuildingPayload(b,{id:'b'+crypto.randomBytes(5).toString('hex'),createdAt:nowIso(),archivedAt:'',clientRequestId:requestId});}catch(e){return json(res,422,{error:e.message});}
     db.buildings.push(item);const ownerAccount=db.users.find(x=>x.role==='owner');if(ownerAccount&&!ownerAccount.buildingIds.includes(item.id))ownerAccount.buildingIds.push(item.id);db.inspectionPlans.push({buildingId:item.id,frequencyDays:7,inspectorUserId:'',active:true,lastInspectionAt:'',nextDue:addDaysIso(nowIso(),7)});logSecurity(user.name,`Создан объект ${item.name}`);persist();return json(res,201,item);
   }
   if(req.method==='PATCH'&&/^\/api\/buildings\/[^/]+$/.test(u.pathname)){
@@ -426,10 +458,10 @@ async function api(req,res,u){
 
   if(req.method==='POST'&&u.pathname==='/api/issues'){
     if(isTenant(user)){
-      let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}const t=db.tenants.find(x=>x.id===user.tenantId);if(!t)return json(res,422,{error:'TENANT_NOT_ASSIGNED'});
+      let b;try{b=await bodyJson(req,30_000_000);}catch{return json(res,400,{error:'BAD_JSON'});}const t=db.tenants.find(x=>x.id===user.tenantId);if(!t)return json(res,422,{error:'TENANT_NOT_ASSIGNED'});
       try{const item=createIssueFromPayload({...b,buildingId:t.buildingId,tenantId:t.id,reporter:user.name,status:'new',responsibleUserId:''},user);logSecurity(user.name,`Создана заявка ${item.id}`);persist();return json(res,201,publicIssue(item));}catch(e){return json(res,422,{error:e.message});}
     }
-    if(!hasPerm(user,'issues_edit'))return json(res,403,{error:'FORBIDDEN'});let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}
+    if(!hasPerm(user,'issues_edit'))return json(res,403,{error:'FORBIDDEN'});let b;try{b=await bodyJson(req,30_000_000);}catch{return json(res,400,{error:'BAD_JSON'});}
     const tenant=b.tenantId?db.tenants.find(t=>t.id===b.tenantId):null;const buildingId=b.buildingId||tenant?.buildingId;if(!canAccessBuilding(user,buildingId))return json(res,403,{error:'FORBIDDEN'});
     try{const item=createIssueFromPayload({...b,buildingId},user);logSecurity(user.name,`Создана заявка ${item.id}`);persist();return json(res,201,publicIssue(item));}catch(e){return json(res,422,{error:e.message});}
   }
@@ -440,12 +472,13 @@ async function api(req,res,u){
   }
   if(req.method==='POST'&&/^\/api\/issues\/[^/]+\/reports$/.test(u.pathname)){
     const id=decodeURIComponent(u.pathname.split('/')[3]||''),item=db.issues.find(x=>x.id===id);if(!item)return json(res,404,{error:'NOT_FOUND'});if(!canEditIssue(user,item))return json(res,403,{error:'FORBIDDEN'});
-    let b;try{b=await bodyJson(req,30_000_000);}catch{return json(res,413,{error:'UPLOAD_TOO_LARGE'});}if(!String(b.author||'').trim()||!String(b.text||'').trim())return json(res,422,{error:'REQUIRED_FIELDS'});if(!Array.isArray(b.photos)||!b.photos.length)return json(res,422,{error:'PHOTO_REQUIRED'});
+    let b;try{b=await bodyJson(req,30_000_000);}catch{return json(res,413,{error:'UPLOAD_TOO_LARGE'});}const requestId=String(b.clientRequestId||'').slice(0,100);if(requestId&&item.reports.some(r=>r.clientRequestId===requestId&&r.authorUserId===user.id))return json(res,201,publicIssue(item));if(!String(b.author||'').trim()||!String(b.text||'').trim())return json(res,422,{error:'REQUIRED_FIELDS'});if(!Array.isArray(b.photos)||!b.photos.length)return json(res,422,{error:'PHOTO_REQUIRED'});
+    const before=structuredClone(db);
     try{
-      const kind=b.markDone?'solution':'progress',saved=saveIssuePhotos(item,b.photos,kind,String(b.author).slice(0,100));const at=nowIso();const report={id:'r'+crypto.randomBytes(5).toString('hex'),kind,author:String(b.author).slice(0,100),recordedBy:user.name,text:String(b.text).slice(0,1500),at,photos:saved.map(p=>p.id)};item.reports.push(report);item.timeline.push({at,actor:user.name,text:`Добавлен ${kind==='solution'?'итоговый':'промежуточный'} фотоотчёт: ${report.author}`});
+      const kind=b.markDone?'solution':'progress',saved=saveIssuePhotos(item,b.photos,kind,String(b.author).slice(0,100));const at=nowIso();const report={clientRequestId:requestId,authorUserId:user.id,id:'r'+crypto.randomBytes(5).toString('hex'),kind,author:String(b.author).slice(0,100),recordedBy:user.name,text:String(b.text).slice(0,1500),at,photos:saved.map(p=>p.id)};item.reports.push(report);item.timeline.push({at,actor:user.name,text:`Добавлен ${kind==='solution'?'итоговый':'промежуточный'} фотоотчёт: ${report.author}`});
       if(b.markDone){item.resolvedBy=report.author;item.resolvedAt=at;item.result=report.text;if(item.tenantId){item.status='awaiting_acceptance';item.tenantAcceptedAt='';item.tenantAcceptedBy='';item.timeline.push({at,actor:user.name,text:'Работа выполнена — ожидается подтверждение арендатора'});const tu=db.users.find(x=>x.role==='tenant'&&x.tenantId===item.tenantId&&x.active!==false);if(tu)notifyUser(tu.id,'Проблема ожидает вашего подтверждения',item.title,{issueId:item.id,buildingId:item.buildingId});}else{item.status='done';item.timeline.push({at,actor:user.name,text:'Проблема закрыта итоговым фотоотчётом'});}}
       persist();return json(res,201,publicIssue(item));
-    }catch(e){return json(res,422,{error:e.message});}
+    }catch(e){db=before;return json(res,422,{error:e.message});}
   }
   if(req.method==='POST'&&/^\/api\/issues\/[^/]+\/tenant-decision$/.test(u.pathname)){
     if(!isTenant(user))return json(res,403,{error:'FORBIDDEN'});const id=decodeURIComponent(u.pathname.split('/')[3]||''),item=db.issues.find(x=>x.id===id);if(!item)return json(res,404,{error:'NOT_FOUND'});if(item.tenantId!==user.tenantId)return json(res,403,{error:'FORBIDDEN'});if(item.status!=='awaiting_acceptance')return json(res,409,{error:'NOT_AWAITING_ACCEPTANCE'});
@@ -473,11 +506,12 @@ async function api(req,res,u){
   }
 
   if(req.method==='POST'&&u.pathname==='/api/inspections'){
-    if(!hasPerm(user,'inspections_create'))return json(res,403,{error:'FORBIDDEN'});let b;try{b=await bodyJson(req,90_000_000);}catch{return json(res,413,{error:'UPLOAD_TOO_LARGE'});}const buildingId=String(b.buildingId||'');if(!canAccessBuilding(user,buildingId))return json(res,403,{error:'FORBIDDEN'});
+    if(!hasPerm(user,'inspections_create'))return json(res,403,{error:'FORBIDDEN'});let b;try{b=await bodyJson(req,90_000_000);}catch{return json(res,413,{error:'UPLOAD_TOO_LARGE'});}const buildingId=String(b.buildingId||'');const requestId=String(b.clientRequestId||'').slice(0,100);if(requestId){const existing=db.inspections.find(i=>i.clientRequestId===requestId&&i.inspectorUserId===user.id);if(existing){if(!canAccessBuilding(user,existing.buildingId))return json(res,403,{error:'FORBIDDEN'});return json(res,201,publicInspection(existing));}}if(!canAccessBuilding(user,buildingId))return json(res,403,{error:'FORBIDDEN'});
     const ext=Array.isArray(b.exteriorPhotos)?b.exteriorPhotos.filter(x=>x&&x.photo):[];if(ext.length<3||ext.length>4)return json(res,422,{error:'THREE_OR_FOUR_EXTERIOR_PHOTOS_REQUIRED'});
     const rawChecks=Array.isArray(b.tenantChecks)?b.tenantChecks:[];for(const c of rawChecks){if(c?.status==='problem'&&!String(c.notes||c.title||'').trim())return json(res,422,{error:'TENANT_PROBLEM_DESCRIPTION_REQUIRED'});if(c?.status==='problem'&&(!Array.isArray(c.photos)||!c.photos.length))return json(res,422,{error:'TENANT_PROBLEM_PHOTO_REQUIRED'});}
     if(b.buildingFinding&&String(b.buildingFinding.title||'').trim()&&(!Array.isArray(b.buildingFinding.photos)||!b.buildingFinding.photos.length))return json(res,422,{error:'BUILDING_PROBLEM_PHOTO_REQUIRED'});
-    const item=ensureInspectionShape({id:'insp'+crypto.randomBytes(5).toString('hex'),buildingId,inspectorUserId:user.id,inspectorName:user.name,occurredAt:String(b.occurredAt||nowIso()),createdAt:nowIso(),overallCondition:['ok','attention','critical'].includes(b.overallCondition)?b.overallCondition:'ok',notes:String(b.notes||'').slice(0,2000),signature:user.name,photos:[],exteriorPhotoIds:[],tenantChecks:[],buildingFinding:null,createdIssueIds:[]});
+    const item=ensureInspectionShape({clientRequestId:requestId,id:'insp'+crypto.randomBytes(5).toString('hex'),buildingId,inspectorUserId:user.id,inspectorName:user.name,occurredAt:String(b.occurredAt||nowIso()),createdAt:nowIso(),overallCondition:['ok','attention','critical'].includes(b.overallCondition)?b.overallCondition:'ok',notes:String(b.notes||'').slice(0,2000),signature:user.name,photos:[],exteriorPhotoIds:[],tenantChecks:[],buildingFinding:null,createdIssueIds:[]});
+    const before=structuredClone(db);
     try{
       for(const row of ext){const saved=savePhotos(INSPECTION_UPLOAD_DIR,item.id,item.photos,[row.photo],{group:'exterior',label:String(row.side||'Фасад').slice(0,80),tenantId:'',actor:user.name});item.exteriorPhotoIds.push(...saved.map(p=>p.id));}
       const checks=Array.isArray(b.tenantChecks)?b.tenantChecks:[];
@@ -487,7 +521,7 @@ async function api(req,res,u){
         const pics=Array.isArray(c.photos)?c.photos:[];if(status==='problem'&&!String(c.notes||c.title||'').trim())throw new Error('TENANT_PROBLEM_DESCRIPTION_REQUIRED');if(status==='problem'&&!pics.length)throw new Error('TENANT_PROBLEM_PHOTO_REQUIRED');
         if(pics.length){const saved=savePhotos(INSPECTION_UPLOAD_DIR,item.id,item.photos,pics,{group:'tenant',label:tenant.company,tenantId:tenant.id,actor:user.name});check.photoIds=saved.map(p=>p.id);}
         if(status==='problem'){
-          const issue=createIssueFromPayload({buildingId,tenantId:tenant.id,title:String(c.title||`Осмотр ${tenant.company}: ${c.notes}`).slice(0,160),category:check.category,priority:check.priority,reporter:`Осмотр Â· ${user.name}`},user,{sourceInspectionId:item.id});
+          const issue=createIssueFromPayload({buildingId,tenantId:tenant.id,title:String(c.title||`Осмотр ${tenant.company}: ${c.notes}`).slice(0,160),category:check.category,priority:check.priority,reporter:`Осмотр · ${user.name}`},user,{sourceInspectionId:item.id});
           const issuePhotos=check.photoIds.map(pid=>item.photos.find(p=>p.id===pid)).filter(Boolean).map(meta=>({name:meta.originalName,type:meta.mime,data:`data:${meta.mime};base64,${fs.readFileSync(path.join(INSPECTION_UPLOAD_DIR,item.id,meta.file)).toString('base64')}`}));
           saveIssuePhotos(issue,issuePhotos,'problem',user.name);check.issueId=issue.id;item.createdIssueIds.push(issue.id);
         }
@@ -495,13 +529,13 @@ async function api(req,res,u){
       }
       if(b.buildingFinding&&String(b.buildingFinding.title||'').trim()){
         const f=b.buildingFinding,pics=Array.isArray(f.photos)?f.photos:[];if(!pics.length)throw new Error('BUILDING_PROBLEM_PHOTO_REQUIRED');const saved=savePhotos(INSPECTION_UPLOAD_DIR,item.id,item.photos,pics,{group:'building_problem',label:'Проблема объекта',tenantId:'',actor:user.name});
-        const issue=createIssueFromPayload({buildingId,title:String(f.title).slice(0,160),category:String(f.category||'Другое'),priority:f.priority||'normal',reporter:`Осмотр Â· ${user.name}`},user,{sourceInspectionId:item.id});
+        const issue=createIssueFromPayload({buildingId,title:String(f.title).slice(0,160),category:String(f.category||'Другое'),priority:f.priority||'normal',reporter:`Осмотр · ${user.name}`},user,{sourceInspectionId:item.id});
         const issuePics=saved.map(meta=>({name:meta.originalName,type:meta.mime,data:`data:${meta.mime};base64,${fs.readFileSync(path.join(INSPECTION_UPLOAD_DIR,item.id,meta.file)).toString('base64')}`}));saveIssuePhotos(issue,issuePics,'problem',user.name);
         item.buildingFinding={title:String(f.title).slice(0,160),notes:String(f.notes||'').slice(0,1000),category:String(f.category||'Другое').slice(0,60),priority:['low','normal','high','critical'].includes(f.priority)?f.priority:'normal',photoIds:saved.map(p=>p.id),issueId:issue.id};item.createdIssueIds.push(issue.id);
       }
       db.inspections.unshift(item);const plan=db.inspectionPlans.find(p=>p.buildingId===buildingId);if(plan){plan.lastInspectionAt=item.occurredAt;plan.nextDue=addDaysIso(item.occurredAt,plan.frequencyDays||7);}
       logSecurity(user.name,`Проведён осмотр ${buildingId}: создано проблем ${item.createdIssueIds.length}`);persist();return json(res,201,publicInspection(item));
-    }catch(e){return json(res,422,{error:e.message});}
+    }catch(e){db=before;return json(res,422,{error:e.message});}
   }
 
   if(req.method==='POST'&&u.pathname==='/api/staff'){

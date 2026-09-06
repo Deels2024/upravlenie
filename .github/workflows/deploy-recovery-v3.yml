@@ -78,7 +78,7 @@ jobs:
           COPY --chown=app:app scripts ./scripts
           COPY --chown=app:app tests ./tests
           COPY --chown=app:app data/app-data.json ./data/app-data.json
-          RUN mkdir -p /app/data /app/private_uploads && chown -R app:app /app
+          RUN mkdir -p /app/data /app/private_uploads /app/backups && chown -R app:app /app
           USER app
           EXPOSE 8787
           HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD node -e "fetch('http://127.0.0.1:8787/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
@@ -97,23 +97,49 @@ jobs:
                 PORT: 8787
                 HOST: 0.0.0.0
                 DATA_DIR: /app/data
+                BACKUP_DIR: /app/backups
                 UPLOAD_DIR: /app/private_uploads
               ports:
                 - "8787:8787"
               volumes:
                 - property-owner_app_data:/app/data
                 - property-owner_app_uploads:/app/private_uploads
+                - backups:/app/backups:ro
+              read_only: true
+              tmpfs:
+                - /tmp
+              security_opt:
+                - no-new-privileges:true
+            backup:
+              image: upravlenie-v3-app:local
+              restart: unless-stopped
+              command: ["node", "--no-warnings", "scripts/backup.js"]
+              environment:
+                DB_FILE: /app/data/app.db
+                UPLOAD_DIR: /app/private_uploads
+                BACKUP_DIR: /app/backups
+                BACKUP_INTERVAL_SECONDS: "86400"
+                BACKUP_KEEP: "14"
+              volumes:
+                - property-owner_app_data:/app/data:ro
+                - property-owner_app_uploads:/app/private_uploads:ro
+                - backups:/app/backups
               read_only: true
               tmpfs:
                 - /tmp
               security_opt:
                 - no-new-privileges:true
           volumes:
+            backups:
+              name: upravlenie_backups
             property-owner_app_data:
               external: true
             property-owner_app_uploads:
               external: true
           EOF
+
+          # A verified snapshot must exist before switching the application.
+          docker compose -p upravlenie-v3 -f /opt/upravlenie-v3/docker-compose.production.yml run --rm --no-deps backup node --no-warnings scripts/backup.js --once
 
           docker compose -p property-owner -f /opt/property-owner-pwa/docker-compose.ip.yml down
           if ! docker compose -p upravlenie-v3 -f /opt/upravlenie-v3/docker-compose.production.yml up -d --no-build; then

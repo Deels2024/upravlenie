@@ -12,9 +12,11 @@ services:
       OWNER_PASSWORD: ${OWNER_PASSWORD}
       COOKIE_SECURE: ${COOKIE_SECURE:-0}
       DB_FILE: /app/data/app.db
+      BACKUP_DIR: /app/backups
     volumes:
       - app_data:/app/data
       - app_uploads:/app/private_uploads
+      - app_backups:/app/backups:ro
     networks:
       - internal
     read_only: true
@@ -54,7 +56,7 @@ services:
     volumes:
       - app_data:/app/data:ro
       - app_uploads:/app/private_uploads:ro
-      - ./backups:/app/backups
+      - app_backups:/app/backups
     networks:
       - internal
     read_only: true
@@ -73,9 +75,12 @@ networks:
 # external:true is intentional: if either volume is missing, Compose must fail
 # instead of silently creating a new empty database/uploads volume.
 volumes:
+  app_backups:
+    name: upravlenie_backups
   app_data:
     external: true
     name: property-owner_app_data
   app_uploads:
     external: true
     name: property-owner_app_uploads
+

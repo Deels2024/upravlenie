@@ -2,14 +2,14 @@
 const {spawn}=require('child_process');
 const fs=require('fs'),os=require('os'),path=require('path');
 const root=path.resolve(__dirname,'..'),tmp=fs.mkdtempSync(path.join(os.tmpdir(),'owner-v3-')),port=18987;
-const env={...process.env,NODE_ENV:'test',HOST:'127.0.0.1',PORT:String(port),DB_FILE:path.join(tmp,'app.db'),UPLOAD_DIR:path.join(tmp,'uploads'),OWNER_LOGIN:process.env.OWNER_LOGIN||'owner',OWNER_PASSWORD:process.env.OWNER_PASSWORD||'CI-Only-Owner-Password-2026!'};
-const child=spawn(process.execPath,['server.js'],{cwd:root,env,stdio:['ignore','pipe','pipe']});let stderr='';child.stderr.on('data',d=>stderr+=d);
+const env={...process.env,NODE_ENV:'test',HOST:'127.0.0.1',PORT:String(port),DB_FILE:path.join(tmp,'app.db'),UPLOAD_DIR:path.join(tmp,'uploads'),BACKUP_DIR:path.join(tmp,'backups'),OWNER_LOGIN:process.env.OWNER_LOGIN||'owner',OWNER_PASSWORD:process.env.OWNER_PASSWORD||'CI-Only-Owner-Password-2026!'};
+const child=spawn(process.execPath,['server.js'],{cwd:root,env,stdio:['ignore','pipe','pipe']});let restoredChild;let stderr='';child.stderr.on('data',d=>stderr+=d);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${url}`,opt),text=await r.text();let data={};try{data=JSON.parse(text)}catch{};return {r,data};}
 (async()=>{try{
   for(let i=0;i<50;i++){try{const x=await req('/healthz');if(x.r.ok)break}catch{}await sleep(100)}
   let x=await req('/healthz');if(x.data.version!=='3.0.0')throw Error('bad health version');
-  const release=await req('/version.json');if(!release.r.ok||release.data.version!=='3.4.0'||release.r.headers.get('cache-control')!=='no-store')throw Error('release version or cache policy incorrect');
+  const release=await req('/version.json');if(!release.r.ok||release.data.version!=='3.5.0'||release.r.headers.get('cache-control')!=='no-store')throw Error('release version or cache policy incorrect');
   const html=await (await fetch(`http://127.0.0.1:${port}/`)).text();if(!html.includes('/app.js?v='+release.data.version)||!html.includes('/app.css?v='+release.data.version))throw Error('shell version mismatch');
   x=await req('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:env.OWNER_LOGIN,password:env.OWNER_PASSWORD})});if(!x.r.ok)throw Error('owner login failed '+JSON.stringify(x.data));
   const cookie=(x.r.headers.get('set-cookie')||'').split(';')[0],csrf=x.data.csrf,headers={'content-type':'application/json','cookie':cookie,'x-csrf-token':csrf};
@@ -44,9 +44,13 @@ async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${ur
   assert.equal((await patch('/api/staff/'+worker.id,{name:'MUTATED',email:'twin'})).r.status,409);
   assert.equal((await req('/api/admin',{headers})).data.users.find(x=>x.id===worker.id).name,'Одинаковое имя');
   assert.equal((await post('/api/issues',{buildingId:b,title:'Wrong assignment',responsibleUserId:worker.id})).r.status,422);
-  const issue=(await post('/api/issues',{buildingId:a,title:'Task A',responsibleUserId:worker.id})).data;
+  const issue=(await post('/api/issues',{buildingId:a,title:'Task A',responsibleUserId:worker.id,due:'2020-01-01'})).data;
   assert.ok(issue.id);assert.equal((await req('/api/issues',{headers:wh})).data.length,1);
   assert.equal((await req('/api/issues',{headers:th})).data.length,0,'same name does not grant access');
+  const reminder=(await req('/api/notifications',{headers:wh})).data.find(n=>n.kind==='reminder'&&n.issueId===issue.id);assert.ok(reminder);
+  assert.equal((await req('/api/notifications',{headers:th})).data.some(n=>n.issueId===issue.id),false);
+  await post('/api/notifications/read',{ids:[reminder.id]},wh);
+  assert.ok((await req('/api/notifications',{headers:wh})).data.find(n=>n.id===reminder.id).readAt);
   const other=(await post('/api/issues',{buildingId:b,title:'Task B'})).data;
   assert.equal((await patch('/api/issues/'+other.id,{priority:'critical',responsibleUserId:worker.id})).r.status,422);
   assert.equal((await req('/api/issues',{headers})).data.find(x=>x.id===other.id).priority,'normal');
@@ -55,11 +59,19 @@ async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${ur
   const tenant=(await post('/api/tenants',{buildingId:b,company:'Tenant B',area:10})).data;
   assert.equal((await post('/api/issues',{buildingId:a,tenantId:tenant.id,title:'Wrong tenant'})).r.status,422);
   assert.equal((await post('/api/issues',{buildingId:'missing',title:'Missing building'})).r.status,403);
-  const report={author:'Исполнитель',text:'Работа выполнена',markDone:true,photos:[{name:'result.png',type:'image/png',data:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP1sAAAAASUVORK5CYII='}]};
+  const report={clientRequestId:'report-retry-1',author:'Исполнитель',text:'Работа выполнена',markDone:true,photos:[{name:'result.png',type:'image/png',data:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP1sAAAAASUVORK5CYII='}]};
   assert.equal((await post('/api/issues/'+issue.id+'/reports',{...report,photos:[]},wh)).r.status,422);
   const completed=await post('/api/issues/'+issue.id+'/reports',report,wh);
+  const repeatedReport=await post('/api/issues/'+issue.id+'/reports',report,wh);assert.equal(repeatedReport.data.reports.length,1,'report retry does not duplicate');
   assert.equal(completed.r.status,201);assert.equal(completed.data.status,'done');
   assert.equal((await req(completed.data.photos[0].url,{headers:th})).r.status,403,'same-name staff cannot read private photo');
+  assert.equal((await req('/api/notifications',{headers:wh})).data.some(n=>n.kind==='reminder'&&n.issueId===issue.id),false,'completed task no longer reminds');
+  const createWithPhoto={buildingId:a,title:'One request with photo',photos:report.photos,clientRequestId:'audit-request-1'};
+  const firstCreate=await post('/api/issues',createWithPhoto);const retriedCreate=await post('/api/issues',createWithPhoto);
+  assert.equal(firstCreate.r.status,201);assert.equal(firstCreate.data.photos.length,1);assert.equal(retriedCreate.data.id,firstCreate.data.id,'retry does not create duplicate');
+  const beforeInvalid=(await req('/api/issues',{headers})).data.length;
+  assert.equal((await post('/api/issues',{buildingId:a,title:'Invalid photo',photos:[{type:'text/plain',data:'bad'}]})).r.status,422);
+  assert.equal((await req('/api/issues',{headers})).data.length,beforeInvalid,'failed photo does not create task');
   const tenantIssue=(await post('/api/issues',{buildingId:b,tenantId:tenant.id,title:'Tenant repair'})).data;
   const waiting=await post('/api/issues/'+tenantIssue.id+'/reports',report);
   assert.equal(waiting.r.status,201);assert.equal(waiting.data.status,'awaiting_acceptance');
@@ -71,7 +83,37 @@ async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${ur
   assert.equal((await patch('/api/staff/'+worker.id,{active:false})).r.status,200);
   assert.equal((await req('/api/me',{headers:nextHeaders})).r.status,401,'disable revokes session');
   assert.equal((await post('/api/issues',{buildingId:a,title:'Disabled worker',responsibleUserId:worker.id})).r.status,422);
+  const inspectionPayload={buildingId:a,clientRequestId:'inspection-retry-1',occurredAt:new Date().toISOString(),exteriorPhotos:[1,2,3].map(n=>({side:'Side '+n,photo:report.photos[0]})),tenantChecks:[]};
+  const inspected=await post('/api/inspections',inspectionPayload);assert.equal(inspected.r.status,201);assert.equal((await post('/api/inspections',inspectionPayload)).data.id,inspected.data.id,'inspection retry does not duplicate');
+  const tenantA=(await post('/api/tenants',{buildingId:a,company:'Tenant A',area:10})).data;
+  const issuesBeforeFailedInspection=(await req('/api/issues',{headers})).data.length;
+  const failedInspection=await post('/api/inspections',{...inspectionPayload,clientRequestId:'inspection-invalid',tenantChecks:[{tenantId:tenantA.id,status:'problem',notes:'Leak',photos:report.photos}],buildingFinding:{title:'No required photo'}});
+  assert.equal(failedInspection.r.status,422);assert.equal((await req('/api/issues',{headers})).data.length,issuesBeforeFailedInspection,'failed inspection rolls back generated tasks');
+  // Back up live WAL data and photos; restore into an isolated second server.
+  const {spawnSync}=require('child_process');
+  const backup=spawnSync(process.execPath,['scripts/backup.js','--once'],{cwd:root,env,encoding:'utf8'});
+  assert.equal(backup.status,0,backup.stderr);
+  const backupDir=path.join(env.BACKUP_DIR,fs.readdirSync(env.BACKUP_DIR).find(x=>x.startsWith('owner-property-')));
+  const verified=spawnSync(process.execPath,['scripts/verify-backup.js',backupDir],{cwd:root,env,encoding:'utf8'});
+  assert.equal(verified.status,0,verified.stderr);
+  assert.equal((await req('/api/backup-status',{headers:th})).r.status,403);
+  assert.equal((await req('/api/backup-status',{headers})).data.verifiedAtCreation,true);
+  const restoreDir=path.join(tmp,'restored');fs.mkdirSync(restoreDir);
+  const restored=spawnSync(process.execPath,['scripts/restore-backup.js',backupDir,restoreDir],{cwd:root,encoding:'utf8'});assert.equal(restored.status,0,restored.stderr);
+  assert.notEqual(spawnSync(process.execPath,['scripts/restore-backup.js',backupDir,restoreDir],{cwd:root,encoding:'utf8'}).status,0,'restore never overwrites an existing target');
+  restoredChild=spawn(process.execPath,['server.js'],{cwd:root,env:{...env,PORT:'18988',DB_FILE:path.join(restoreDir,'app.db'),UPLOAD_DIR:path.join(restoreDir,'private_uploads')},stdio:'ignore'});
+  for(let i=0;i<50;i++){try{if((await fetch('http://127.0.0.1:18988/healthz')).ok)break;}catch{}await sleep(100);}
+  const restoredLogin=await fetch('http://127.0.0.1:18988/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:env.OWNER_LOGIN,password:env.OWNER_PASSWORD})});
+  assert.equal(restoredLogin.status,200);
+  const rh={cookie:restoredLogin.headers.get('set-cookie').split(';')[0]};
+  const restoredBuildings=await (await fetch('http://127.0.0.1:18988/api/buildings',{headers:rh})).json();assert.equal(restoredBuildings.length,2);
+  const restoredAccounts=await (await fetch('http://127.0.0.1:18988/api/admin',{headers:rh})).json();assert.ok(restoredAccounts.users.some(u=>u.id===twin.id));
+  const restoredPhoto=await fetch('http://127.0.0.1:18988'+completed.data.photos[0].url,{headers:rh});assert.equal(restoredPhoto.status,200);assert.equal(Buffer.from(await restoredPhoto.arrayBuffer()).toString('base64'),report.photos[0].data.split(',')[1]);
+  // Corruption and a missing source must fail, rather than reporting a successful backup.
+  fs.appendFileSync(path.join(backupDir,'app.db'),'corrupt');
+  assert.notEqual(spawnSync(process.execPath,['scripts/verify-backup.js',backupDir],{cwd:root,encoding:'utf8'}).status,0);
+  assert.notEqual(spawnSync(process.execPath,['scripts/backup.js','--once'],{cwd:root,env:{...env,DB_FILE:path.join(tmp,'missing.db')},encoding:'utf8'}).status,0);
   console.log('v3-clean smoke: objects, staff, permissions, assignments, password sessions: OK');
 
-}catch(e){console.error(e.stack||e);console.error(stderr);process.exitCode=1}finally{child.kill('SIGTERM')}})();
+}catch(e){console.error(e.stack||e);console.error(stderr);process.exitCode=1}finally{child.kill('SIGTERM');restoredChild?.kill('SIGTERM')}})();
 
