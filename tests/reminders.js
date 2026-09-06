@@ -1,0 +1,10 @@
+'use strict';
+const assert=require('node:assert/strict'),{remindersFor}=require('../src/reminders');
+const state={buildings:[{id:'a'},{id:'archived',archivedAt:'2026-01-01'}],issues:[{id:'late',buildingId:'a',due:'2026-09-05',title:'Late',status:'new'},{id:'today',buildingId:'a',due:'2026-09-06',title:'Today',status:'assigned'},{id:'tomorrow',buildingId:'a',due:'2026-09-07',title:'Tomorrow',status:'new'},{id:'later',buildingId:'a',due:'2026-09-08',status:'new'},{id:'done',buildingId:'a',due:'2020-01-01',status:'done'},{id:'archived',buildingId:'archived',due:'2020-01-01',status:'new'}],inspectionPlans:[{buildingId:'a',nextDue:'2026-09-06',inspectorUserId:'inspector',active:true}]};
+const perms={canSeeIssue:()=>true,canAccessBuilding:()=>true,hasPerm:()=>true};
+const owner=remindersFor(state,{id:'owner',role:'owner'},perms,'2026-09-06');
+assert.deepEqual(owner.filter(n=>n.issueId).map(n=>n.issueId),['late','today','tomorrow']);assert.equal(owner.filter(n=>!n.issueId).length,1);
+assert.equal(remindersFor(state,{id:'other',role:'inspector'},{...perms,canSeeIssue:()=>false},'2026-09-06').length,0);
+assert.equal(remindersFor(state,{id:'inspector',role:'inspector'},{...perms,canSeeIssue:()=>false},'2026-09-06').length,1);
+assert.equal(remindersFor(state,{id:'tenant',role:'tenant'},{...perms,hasPerm:()=>false},'2026-09-06').length,0);
+console.log('deadline reminders: dates, completed/archive exclusion and recipients: OK');
