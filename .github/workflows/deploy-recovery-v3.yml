@@ -51,7 +51,7 @@ jobs:
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
-          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'REMOTE'
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'REMOTE' | tee /tmp/upravlenie-deploy-result.log
           set -euo pipefail
           install -d /opt/upravlenie-v3
           find /opt/upravlenie-v3 -mindepth 1 -maxdepth 1 ! -name .env -exec rm -rf -- {} +
@@ -139,7 +139,7 @@ jobs:
           EOF
 
           # A verified snapshot must exist before switching the application.
-          docker compose -p upravlenie-v3 -f /opt/upravlenie-v3/docker-compose.production.yml run --rm --no-deps backup node --no-warnings scripts/backup.js --once
+          docker compose -p upravlenie-v3 -f /opt/upravlenie-v3/docker-compose.production.yml run -T --rm --no-deps backup node --no-warnings scripts/backup.js --once </dev/null
 
           docker compose -p property-owner -f /opt/property-owner-pwa/docker-compose.ip.yml down
           if ! docker compose -p upravlenie-v3 -f /opt/upravlenie-v3/docker-compose.production.yml up -d --no-build; then
@@ -149,6 +149,10 @@ jobs:
 
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8787/healthz | grep -q '"version":"3.0.0"' && curl -fsS http://127.0.0.1:8787/version.json | cmp -s - /opt/upravlenie-v3/public/version.json; then
+              docker compose -p upravlenie-v3 -f /opt/upravlenie-v3/docker-compose.production.yml ps --status running --services | grep -qx backup
+              printf 'Published version: '
+              curl -fsS http://127.0.0.1:8787/version.json
+              printf '%s\n' RELEASE_VERIFIED
               rm -f /tmp/upravlenie-release.tar.gz
               exit 0
             fi
@@ -159,4 +163,5 @@ jobs:
           docker compose -p property-owner -f /opt/property-owner-pwa/docker-compose.ip.yml up -d
           exit 1
           REMOTE
+          grep -qx RELEASE_VERIFIED /tmp/upravlenie-deploy-result.log
 
