@@ -4,11 +4,14 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const {fork}=require('node:child_process');
+const {backupStatus}=require('./src/backup-status');
+let backupExportBusy=false;
 const { URL } = require('url');
 const { DatabaseSync } = require('node:sqlite');
 
 const {remindersFor}=require('./src/reminders');
-const {validDate,tenantPayload,expensePayload}=require('./src/management');
+const {validDate,tenantPayload,expensePayload,equipmentPayload,metricsPayload}=require('./src/management');
 const config = require('./src/config')(__dirname);
 const {PORT,HOST,PROD,COOKIE_SECURE,PUBLIC_DIR,DATA_FILE,PRIVATE_ROOT,DB_FILE}=config;
 const ISSUE_UPLOAD_DIR = path.join(PRIVATE_ROOT, 'issues');
@@ -25,7 +28,7 @@ const OWNER_PASSWORD = String(process.env.OWNER_PASSWORD || '');
 
 const PERMISSIONS = [
   'dashboard_view','buildings_view','tenants_view','tenants_manage','issues_view','issues_edit',
-  'inspections_view','inspections_create','equipment_view','metrics_view','expenses_view',
+  'inspections_view','inspections_create','equipment_view','equipment_manage','metrics_view','metrics_manage','expenses_view',
   'security_view'
 ];
 const ROLE_DEFAULTS = {
@@ -113,6 +116,7 @@ function ensureInspectionShape(item){
 }
 function ensureDataShape(){
   for(const key of ['buildings','tenants','issues','equipment','metrics','expenses','securityLog']) if(!Array.isArray(db[key])) db[key]=[];
+  for(const key of ['equipment','metrics'])db[key].forEach(item=>{if(!item.id)item.id=key.slice(0,2)+crypto.randomBytes(5).toString('hex');});
   db.expenses.forEach(e=>{if(!e.id)e.id='ex'+crypto.randomBytes(5).toString('hex');});
   db.issues.forEach(ensureIssueShape);
   if(!Array.isArray(db.users)) db.users=[];
@@ -370,11 +374,21 @@ async function api(req,res,u){
   }
   if(req.method==='GET'&&u.pathname==='/api/backup-status'){
     if(user.role!=='owner')return json(res,403,{error:'FORBIDDEN'});
-    const dir=process.env.BACKUP_DIR;
-    try{const names=fs.readdirSync(dir,{withFileTypes:true}).filter(e=>e.isDirectory()&&e.name.startsWith('owner-property-')).map(e=>e.name).sort().reverse();
-      const info=names.length?JSON.parse(fs.readFileSync(path.join(dir,names[0],'BACKUP_INFO.json'),'utf8')):null;
-      return json(res,200,{configured:true,lastBackupAt:info?.createdAt||null,verifiedAtCreation:info?.format===1,count:names.length});
-    }catch{return json(res,200,{configured:!!dir,lastBackupAt:null,verifiedAtCreation:false,count:0});}
+    const {latestName,...status}=backupStatus(process.env.BACKUP_DIR);return json(res,200,status);
+  }
+  if(req.method==='GET'&&u.pathname==='/api/backups/download'){
+    if(user.role!=='owner')return json(res,403,{error:'FORBIDDEN'});
+    res.setHeader('Cache-Control','private, no-store');
+    if(backupExportBusy)return text(res,429,'Копия уже скачивается. Дождитесь завершения и повторите попытку.','text/plain; charset=utf-8');
+    const status=backupStatus(process.env.BACKUP_DIR);if(!status.latestName)return text(res,404,'Подтверждённая резервная копия пока не найдена. Проверьте её статус в админ-панели.','text/plain; charset=utf-8');
+    backupExportBusy=true;
+    const child=fork(path.join(__dirname,'scripts/export-backup.js'),[path.join(process.env.BACKUP_DIR,status.latestName)],{silent:true});
+    const timeout=setTimeout(()=>child.kill('SIGTERM'),120000);
+    const fail=()=>{if(!res.headersSent)text(res,422,'Скачивание отменено: не удалось проверить или подготовить резервную копию. Проверьте работу резервного копирования.','text/plain; charset=utf-8');else if(!res.writableEnded)res.destroy();};
+    child.stderr.resume();child.on('error',fail);
+    child.on('message',message=>{if(message?.ready&&!res.destroyed&&!res.headersSent){res.writeHead(200,{'Content-Type':'application/gzip','Content-Disposition':`attachment; filename="${status.latestName}.tar.gz"`,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'});child.stdout.pipe(res,{end:false});}});
+    child.on('close',code=>{clearTimeout(timeout);backupExportBusy=false;if(code!==0||!res.headersSent)fail();else res.end();});
+    res.on('close',()=>{if(child.exitCode===null)child.kill('SIGTERM');});return;
   }
   if(req.method==='GET'&&u.pathname==='/api/notifications'){
     return json(res,200,[...deadlineReminders(user),...db.notifications.filter(n=>n.userId===user.id&&notificationVisible(user,n))].slice(0,100));
@@ -434,11 +448,34 @@ async function api(req,res,u){
     res.writeHead(200,{'Content-Type':meta.mime,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Disposition':'inline'});fs.createReadStream(file).pipe(res);return;
   }
 
+  if(['POST','PATCH','DELETE'].includes(req.method)&&/^\/api\/(equipment|metrics)(\/[^/]+)?$/.test(u.pathname)){
+    const [, ,kind,id]=u.pathname.split('/'),recordId=id?decodeURIComponent(id):'';
+    if((req.method==='POST'&&recordId)||(req.method!=='POST'&&!recordId))return json(res,404,{error:'NOT_FOUND'});
+    if(!hasPerm(user,kind+'_view')||!hasPerm(user,kind+'_manage')||isTenant(user))return json(res,403,{error:'FORBIDDEN'});
+    const existing=req.method==='POST'?null:db[kind].find(x=>x.id===recordId);
+    if(req.method!=='POST'&&!existing)return json(res,404,{error:'NOT_FOUND'});
+    if(existing&&!canAccessBuilding(user,existing.buildingId))return json(res,403,{error:'FORBIDDEN'});
+    if(req.method==='DELETE'){
+      if(user.role!=='owner')return json(res,403,{error:'FORBIDDEN'});
+      db[kind]=db[kind].filter(x=>x!==existing);logSecurity(user.name,`Удалена запись ${kind}: ${existing.name||existing.month}`);persist();return json(res,200,{ok:true});
+    }
+    let b;try{b=await bodyJson(req);}catch{return json(res,400,{error:'BAD_JSON'});}
+    const buildingId=existing?.buildingId||String(b.buildingId||'');
+    if(!canAccessBuilding(user,buildingId))return json(res,403,{error:'FORBIDDEN'});
+    if(!db.buildings.some(x=>x.id===buildingId&&!x.archivedAt)||existing&&'buildingId'in b&&b.buildingId!==buildingId)return json(res,422,{error:'BAD_BUILDING'});
+    const requestId=String(b.clientRequestId||'').slice(0,100);
+    if(!existing&&requestId){const prev=db[kind].find(x=>x.clientRequestId===requestId&&x.createdByUserId===user.id);if(prev){if(!canAccessBuilding(user,prev.buildingId))return json(res,403,{error:'FORBIDDEN'});return json(res,201,prev);}}
+    let fields;try{fields=(kind==='equipment'?equipmentPayload:metricsPayload)(b,existing||{});}catch(e){return json(res,422,{error:e.message});}
+    if(kind==='metrics'&&db.metrics.some(x=>x!==existing&&x.buildingId===buildingId&&x.month===fields.month))return json(res,409,{error:'METRIC_PERIOD_EXISTS'});
+    const item=existing||{id:kind.slice(0,2)+crypto.randomBytes(5).toString('hex'),buildingId,clientRequestId:requestId,createdByUserId:user.id,createdAt:nowIso()};
+    Object.assign(item,fields,{updatedAt:nowIso(),updatedByUserId:user.id});if(!existing)db[kind].push(item);
+    logSecurity(user.name,`${existing?'Изменена':'Добавлена'} запись ${kind}: ${item.name||item.month}`);persist();return json(res,existing?200:201,item);
+  }
   if(req.method==='GET'&&u.pathname==='/api/equipment'){
-    if(!hasPerm(user,'equipment_view'))return json(res,403,{error:'FORBIDDEN'});return json(res,200,db.equipment.filter(e=>canAccessBuilding(user,e.buildingId)));
+    if(!hasPerm(user,'equipment_view'))return json(res,403,{error:'FORBIDDEN'});return json(res,200,db.equipment.filter(e=>canAccessBuilding(user,e.buildingId)&&db.buildings.some(b=>b.id===e.buildingId&&!b.archivedAt)));
   }
   if(req.method==='GET'&&u.pathname==='/api/metrics'){
-    if(!hasPerm(user,'metrics_view'))return json(res,403,{error:'FORBIDDEN'});return json(res,200,db.metrics.filter(m=>canAccessBuilding(user,m.buildingId)));
+    if(!hasPerm(user,'metrics_view'))return json(res,403,{error:'FORBIDDEN'});return json(res,200,db.metrics.filter(m=>canAccessBuilding(user,m.buildingId)&&db.buildings.some(b=>b.id===m.buildingId&&!b.archivedAt)));
   }
   if(req.method==='GET'&&u.pathname==='/api/expenses'){
     if(!hasPerm(user,'expenses_view'))return json(res,403,{error:'FORBIDDEN'});return json(res,200,db.expenses.filter(e=>canAccessBuilding(user,e.buildingId)));

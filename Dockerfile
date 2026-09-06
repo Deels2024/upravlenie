@@ -16,6 +16,7 @@ COPY --chown=app:app public ./public
 COPY --chown=app:app data/app-data.json ./data/app-data.json
 COPY --chown=app:app scripts ./scripts
 
+RUN tar --version >/dev/null
 RUN mkdir -p /app/data /app/private_uploads /app/backups && chown -R app:app /app
 
 USER app
@@ -25,3 +26,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:8787/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
 CMD ["node","--no-warnings","server.js"]
+

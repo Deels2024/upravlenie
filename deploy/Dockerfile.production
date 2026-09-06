@@ -9,6 +9,7 @@ COPY --chown=app:app public ./public
 COPY --chown=app:app scripts ./scripts
 COPY --chown=app:app tests ./tests
 COPY --chown=app:app data/app-data.json ./data/app-data.json
+RUN tar --version >/dev/null
 RUN mkdir -p /app/data /app/private_uploads /app/backups && chown -R app:app /app
 USER app
 EXPOSE 8787

@@ -20,4 +20,21 @@ function expensePayload(body,previous={}){
  for(const key of expenseFields){const n=Number(value[key]||0);if(!Number.isFinite(n)||n<0||n>1e12)throw Error('BAD_COST');const rounded=Math.round(n*100);out[key]=rounded/100;cents+=rounded;}
  out.total=cents/100;return out;
 }
-module.exports={validDate,tenantPayload,expensePayload};
+function equipmentPayload(body,previous={}){
+ const value={...previous,...body},out={};
+ for(const [key,max]of Object.entries({name:120,system:80,model:120,location:140,note:1000}))out[key]=String(value[key]||'').trim().slice(0,max);
+ if(!out.name)throw Error('REQUIRED_FIELDS');
+ out.status=value.status||'ok';if(!['ok','attention','out_of_service'].includes(out.status))throw Error('BAD_EQUIPMENT_STATUS');
+ out.nextService=String(value.nextService||'');if(out.nextService&&!validDate(out.nextService))throw Error('BAD_DATE');
+ return out;
+}
+function metricsPayload(body,previous={}){
+ const value={...previous,...body},out={month:String(value.month||''),note:String(value.note||'').trim().slice(0,500)};
+ if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(out.month))throw Error('BAD_MONTH');
+ for(const key of ['electricity','water','heat']){
+  const raw=value[key];if(raw===null||raw===undefined||String(raw).trim()===''||!['string','number'].includes(typeof raw))throw Error('METRIC_REQUIRED');
+  const n=Number(raw);if(!Number.isFinite(n)||n<0||n>1e12)throw Error('BAD_METRIC');out[key]=Math.round(n*1000)/1000;
+ }
+ return out;
+}
+module.exports={validDate,tenantPayload,expensePayload,equipmentPayload,metricsPayload};

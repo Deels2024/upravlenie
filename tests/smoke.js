@@ -9,7 +9,7 @@ async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${ur
 (async()=>{try{
   for(let i=0;i<50;i++){try{const x=await req('/healthz');if(x.r.ok)break}catch{}await sleep(100)}
   let x=await req('/healthz');if(x.data.version!=='3.0.0')throw Error('bad health version');
-  const release=await req('/version.json');if(!release.r.ok||release.data.version!=='3.6.0'||release.r.headers.get('cache-control')!=='no-store')throw Error('release version or cache policy incorrect');
+  const release=await req('/version.json');if(!release.r.ok||release.data.version!=='3.7.0'||release.r.headers.get('cache-control')!=='no-store')throw Error('release version or cache policy incorrect');
   const html=await (await fetch(`http://127.0.0.1:${port}/`)).text();if(!html.includes('/app.js?v='+release.data.version)||!html.includes('/app.css?v='+release.data.version))throw Error('shell version mismatch');
   x=await req('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:env.OWNER_LOGIN,password:env.OWNER_PASSWORD})});if(!x.r.ok)throw Error('owner login failed '+JSON.stringify(x.data));
   const cookie=(x.r.headers.get('set-cookie')||'').split(';')[0],csrf=x.data.csrf,headers={'content-type':'application/json','cookie':cookie,'x-csrf-token':csrf};
@@ -121,6 +121,40 @@ async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${ur
   const issuesBeforeFailedInspection=(await req('/api/issues',{headers})).data.length;
   const failedInspection=await post('/api/inspections',{...inspectionPayload,clientRequestId:'inspection-invalid',tenantChecks:[{tenantId:tenantA.id,status:'problem',notes:'Leak',photos:report.photos}],buildingFinding:{title:'No required photo'}});
   assert.equal(failedInspection.r.status,422);assert.equal((await req('/api/issues',{headers})).data.length,issuesBeforeFailedInspection,'failed inspection rolls back generated tasks');
+  // Technical registry: rights, retry safety, validation and archive isolation.
+  const eqPayload={buildingId:a,name:'Насос',system:'Водоснабжение',model:'Pump-100',nextService:'2020-01-01',clientRequestId:'eq-1'};
+  assert.equal((await post('/api/equipment',eqPayload,th)).r.status,403,'view permission does not grant writes');
+  const eq=await post('/api/equipment',eqPayload);assert.equal(eq.r.status,201);assert.equal((await post('/api/equipment',eqPayload)).data.id,eq.data.id);
+  assert.ok((await req('/api/notifications',{headers:th})).data.some(n=>n.equipmentId===eq.data.id),'maintenance reminder visible to allowed staff');
+  for(const bad of [{name:'',model:'MUTATED'},{nextService:'2026-02-30',name:'MUTATED'},{status:'bad'},{buildingId:b}])assert.equal((await patch('/api/equipment/'+eq.data.id,bad)).r.status,422);
+  assert.equal((await req('/api/equipment',{headers})).data.find(e=>e.id===eq.data.id).name,'Насос');
+  const mp={buildingId:a,month:'2026-09',electricity:123.125,water:10.5,heat:0,clientRequestId:'m-1'};
+  assert.equal((await post('/api/metrics',mp,th)).r.status,403);
+  const metric=await post('/api/metrics',mp);assert.equal(metric.r.status,201);assert.equal((await post('/api/metrics',mp)).data.id,metric.data.id);
+  assert.equal((await post('/api/metrics',{...mp,clientRequestId:'m-2'})).r.status,409);
+  for(const bad of [{electricity:-1},{water:'oops'},{heat:''},{heat:null},{water:true},{month:'2026-13'},{buildingId:b}])assert.equal((await patch('/api/metrics/'+metric.data.id,bad)).r.status,422);
+  const otherMetric=(await post('/api/metrics',{...mp,month:'2026-08',clientRequestId:'m-3'})).data;
+  assert.equal((await patch('/api/metrics/'+otherMetric.id,{month:'2026-09',electricity:999})).r.status,409);
+  assert.equal((await req('/api/metrics',{headers})).data.find(m=>m.id===otherMetric.id).electricity,123.125,'failed update remains atomic');
+  const access=['equipment_view','equipment_manage','metrics_view','metrics_manage','buildings_view'];
+  await patch('/api/staff/'+twin.id,{permissions:access});
+  assert.equal((await patch('/api/equipment/'+eq.data.id,{model:'Updated'},th)).r.status,200);
+  assert.equal((await patch('/api/metrics/'+metric.data.id,{water:12.25},th)).r.status,200);
+  for(const kind of ['equipment','metrics']){
+    assert.equal((await post('/api/'+kind,{...(kind==='equipment'?eqPayload:mp),buildingId:b},th)).r.status,403);
+    assert.equal((await req('/api/'+kind+'/'+(kind==='equipment'?eq.data.id:metric.data.id),{method:'DELETE',headers:th})).r.status,403);
+  }
+  assert.equal((await req('/api/admin',{headers:th})).r.status,403,'editing registry does not expose admin');
+  await post('/api/buildings/'+a+'/archive',{});
+  assert.equal((await req('/api/equipment',{headers})).data.some(e=>e.id===eq.data.id),false);
+  assert.equal((await req('/api/notifications',{headers:th})).data.some(n=>n.equipmentId===eq.data.id),false);
+  assert.equal((await patch('/api/equipment/'+eq.data.id,{name:'Archived edit'})).r.status,422);
+  await post('/api/buildings/'+a+'/restore',{});
+  assert.equal((await req('/api/equipment/'+eq.data.id,{method:'DELETE',headers})).r.status,200);
+  assert.equal((await req('/api/notifications',{headers:th})).data.some(n=>n.equipmentId===eq.data.id),false);
+  assert.equal((await req('/api/metrics/'+metric.data.id,{method:'DELETE',headers})).r.status,200);
+  assert.equal((await req('/api/backups/download',{headers:th})).r.status,403);
+  assert.equal((await req('/api/backups/download',{headers})).r.status,404);
   // Back up live WAL data and photos; restore into an isolated second server.
   const {spawnSync}=require('child_process');
   const backup=spawnSync(process.execPath,['scripts/backup.js','--once'],{cwd:root,env,encoding:'utf8'});
@@ -130,9 +164,19 @@ async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${ur
   assert.equal(verified.status,0,verified.stderr);
   assert.equal((await req('/api/backup-status',{headers:th})).r.status,403);
   assert.equal((await req('/api/backup-status',{headers})).data.verifiedAtCreation,true);
+  assert.equal((await req('/api/backup-status',{headers})).data.stale,false);
+  fs.writeFileSync(path.join(backupDir,'.env'),'unlisted file must not be exported');
+  const download=await fetch(`http://127.0.0.1:${port}/api/backups/download`,{headers});assert.equal(download.status,200);assert.equal(download.headers.get('content-type'),'application/gzip');assert.equal(download.headers.get('cache-control'),'private, no-store');
+  const archive=path.join(tmp,'download.tar.gz');fs.writeFileSync(archive,Buffer.from(await download.arrayBuffer()));
+  const exportedDir=path.join(tmp,'exported');fs.mkdirSync(exportedDir);
+  assert.equal(spawnSync('tar',['-xzf',archive,'-C',exportedDir],{encoding:'utf8'}).status,0,'download is a complete tar archive');
+  assert.equal(spawnSync(process.execPath,['scripts/verify-backup.js',exportedDir],{cwd:root,encoding:'utf8'}).status,0,'downloaded database and photos are intact');
+  assert.equal(fs.existsSync(path.join(exportedDir,'.env')),false);
+  fs.symlinkSync(path.join(tmp,'app.db'),path.join(exportedDir,'unsafe-link'));
+  assert.notEqual(spawnSync(process.execPath,['scripts/verify-backup.js',exportedDir],{cwd:root,encoding:'utf8'}).status,0,'links in imported backups are rejected');fs.unlinkSync(path.join(exportedDir,'unsafe-link'));
   const restoreDir=path.join(tmp,'restored');fs.mkdirSync(restoreDir);
-  const restored=spawnSync(process.execPath,['scripts/restore-backup.js',backupDir,restoreDir],{cwd:root,encoding:'utf8'});assert.equal(restored.status,0,restored.stderr);
-  assert.notEqual(spawnSync(process.execPath,['scripts/restore-backup.js',backupDir,restoreDir],{cwd:root,encoding:'utf8'}).status,0,'restore never overwrites an existing target');
+  const restored=spawnSync(process.execPath,['scripts/restore-backup.js',exportedDir,restoreDir],{cwd:root,encoding:'utf8'});assert.equal(restored.status,0,restored.stderr);
+  assert.notEqual(spawnSync(process.execPath,['scripts/restore-backup.js',exportedDir,restoreDir],{cwd:root,encoding:'utf8'}).status,0,'restore never overwrites an existing target');
   restoredChild=spawn(process.execPath,['server.js'],{cwd:root,env:{...env,PORT:'18988',DB_FILE:path.join(restoreDir,'app.db'),UPLOAD_DIR:path.join(restoreDir,'private_uploads')},stdio:'ignore'});
   for(let i=0;i<50;i++){try{if((await fetch('http://127.0.0.1:18988/healthz')).ok)break;}catch{}await sleep(100);}
   const restoredLogin=await fetch('http://127.0.0.1:18988/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:env.OWNER_LOGIN,password:env.OWNER_PASSWORD})});
@@ -143,6 +187,7 @@ async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${ur
   const restoredPhoto=await fetch('http://127.0.0.1:18988'+completed.data.photos[0].url,{headers:rh});assert.equal(restoredPhoto.status,200);assert.equal(Buffer.from(await restoredPhoto.arrayBuffer()).toString('base64'),report.photos[0].data.split(',')[1]);
   // Corruption and a missing source must fail, rather than reporting a successful backup.
   fs.appendFileSync(path.join(backupDir,'app.db'),'corrupt');
+  assert.equal((await req('/api/backups/download',{headers})).r.status,422,'corrupt backups cannot be downloaded as verified copies');
   assert.notEqual(spawnSync(process.execPath,['scripts/verify-backup.js',backupDir],{cwd:root,encoding:'utf8'}).status,0);
   assert.notEqual(spawnSync(process.execPath,['scripts/backup.js','--once'],{cwd:root,env:{...env,DB_FILE:path.join(tmp,'missing.db')},encoding:'utf8'}).status,0);
   console.log('v3-clean smoke: objects, staff, permissions, assignments, password sessions: OK');
