@@ -10,7 +10,8 @@ module.exports=function config(rootDir){
     COOKIE_SECURE:process.env.COOKIE_SECURE==='1',
     PUBLIC_DIR:path.join(rootDir,'public'),
     DATA_FILE:path.join(rootDir,'data','app-data.json'),
-    PRIVATE_ROOT:path.join(rootDir,'private_uploads'),
+    PRIVATE_ROOT:process.env.UPLOAD_DIR||path.join(rootDir,'private_uploads'),
     DB_FILE:process.env.DB_FILE||path.join(rootDir,'data','app.db')
   };
 };
+

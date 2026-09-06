@@ -220,3 +220,32 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
   .building-card .metric-mini{text-align:left;display:flex;gap:6px;align-items:baseline}
   .chips span{font-size:10px}
 }
+
+
+/* Audit: readable native controls, issue cards and mobile employee actions. */
+:root{color-scheme:dark}
+.issue-card{width:100%;min-width:0;padding:14px;border:1px solid var(--line);border-radius:15px;background:var(--panel);color:var(--text);text-align:left;overflow-wrap:anywhere}
+.issue-main{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.issue-main>div{min-width:0}
+.issue-main>div>span{display:block;color:var(--muted);font-size:13px;margin-top:6px}
+.issue-meta{font-size:13px;color:var(--muted)}
+.mobile-only{display:none}
+@media(max-width:800px){.mobile-only{display:inline-flex}}
+.building-card .building-top b{white-space:normal;overflow-wrap:anywhere}
+.modal-head>div,.info-item{min-width:0;overflow-wrap:anywhere}
+.modal-head .icon-btn{flex-shrink:0}
+@media(max-width:800px){
+ .staff-table,.staff-table tbody,.staff-table tr,.staff-table td{display:block;width:100%;min-width:0}
+ .staff-table thead{display:none}
+ .staff-table tr{padding:12px;border-bottom:1px solid var(--line)}
+ .staff-table td{border:0;padding:5px 0;overflow-wrap:anywhere}
+ .staff-table .row-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+ .staff-table .link-btn{min-height:44px;text-align:left}
+}
+
+.mt-16{margin-top:16px}
+.security-card .registration-off{color:var(--green);font-size:20px}
+.metric-progress{width:100%;height:11px;border:0;border-radius:999px;overflow:hidden;appearance:none;background:#122239}
+.metric-progress::-webkit-progress-bar{background:#122239}
+.metric-progress::-webkit-progress-value{background:linear-gradient(90deg,#5fd8ff,#7e89ff)}
+.metric-progress::-moz-progress-bar{background:linear-gradient(90deg,#5fd8ff,#7e89ff)}
