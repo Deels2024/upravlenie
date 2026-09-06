@@ -1,5 +1,5 @@
-const CACHE='owner-property-shell-v3.3.2';
-const SHELL=['/','/app.css?v=3.3.2','/app.js?v=3.3.2','/manifest.webmanifest','/icon.svg'];
+const CACHE='owner-property-shell-v3.3.3';
+const SHELL=['/','/app.css?v=3.3.3','/app.js?v=3.3.3','/manifest.webmanifest','/icon.svg'];
 
 self.addEventListener('install',event=>{
   self.skipWaiting();
@@ -9,18 +9,18 @@ self.addEventListener('install',event=>{
 self.addEventListener('activate',event=>{
   event.waitUntil((async()=>{
     const keys=await caches.keys();
-    await Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)));
+    await Promise.all(keys.filter(key=>key.startsWith('owner-property-shell-')&&key!==CACHE).map(key=>caches.delete(key)));
     await self.clients.claim();
-    const windows=await self.clients.matchAll({type:'window',includeUncontrolled:true});
-    await Promise.all(windows.map(client=>client.navigate(client.url).catch(()=>null)));
+
   })());
 });
 
 self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url);
-  if(url.origin!==location.origin||url.pathname.startsWith('/api/'))return;
+  if(event.request.method!=='GET'||url.origin!==location.origin||!SHELL.some(p=>new URL(p,location.origin).pathname===url.pathname))return;
   event.respondWith(fetch(event.request,{cache:'no-store'}).then(response=>{
     if(response.ok){const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(event.request,copy));}
     return response;
   }).catch(()=>caches.match(event.request)));
 });
+
