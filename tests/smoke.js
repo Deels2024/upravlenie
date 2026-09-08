@@ -3,16 +3,25 @@ const {spawn}=require('child_process');
 const fs=require('fs'),os=require('os'),path=require('path');
 const root=path.resolve(__dirname,'..'),tmp=fs.mkdtempSync(path.join(os.tmpdir(),'owner-v3-')),port=18987;
 const env={...process.env,NODE_ENV:'test',HOST:'127.0.0.1',PORT:String(port),DB_FILE:path.join(tmp,'app.db'),UPLOAD_DIR:path.join(tmp,'uploads'),BACKUP_DIR:path.join(tmp,'backups'),OWNER_LOGIN:process.env.OWNER_LOGIN||'owner',OWNER_PASSWORD:process.env.OWNER_PASSWORD||'CI-Only-Owner-Password-2026!'};
-const child=spawn(process.execPath,['server.js'],{cwd:root,env,stdio:['ignore','pipe','pipe']});let restoredChild;let stderr='';child.stderr.on('data',d=>stderr+=d);
+let child=spawn(process.execPath,['server.js'],{cwd:root,env,stdio:['ignore','pipe','pipe']});let restoredChild;let stderr='';child.stderr.on('data',d=>stderr+=d);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${url}`,opt),text=await r.text();let data={};try{data=JSON.parse(text)}catch{};return {r,data};}
 (async()=>{try{
   for(let i=0;i<50;i++){try{const x=await req('/healthz');if(x.r.ok)break}catch{}await sleep(100)}
   let x=await req('/healthz');if(x.data.version!=='3.0.0')throw Error('bad health version');
-  const release=await req('/version.json');if(!release.r.ok||release.data.version!=='3.8.0'||release.r.headers.get('cache-control')!=='no-store')throw Error('release version or cache policy incorrect');
+  const release=await req('/version.json');if(!release.r.ok||release.data.version!=='3.8.1'||release.r.headers.get('cache-control')!=='no-store')throw Error('release version or cache policy incorrect');
   const html=await (await fetch(`http://127.0.0.1:${port}/`)).text();if(!html.includes('/app.js?v='+release.data.version)||!html.includes('/app.css?v='+release.data.version))throw Error('shell version mismatch');
   x=await req('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:env.OWNER_LOGIN,password:env.OWNER_PASSWORD})});if(!x.r.ok)throw Error('owner login failed '+JSON.stringify(x.data));
   const cookie=(x.r.headers.get('set-cookie')||'').split(';')[0],csrf=x.data.csrf,headers={'content-type':'application/json','cookie':cookie,'x-csrf-token':csrf};
+  if(!x.r.headers.get('set-cookie').includes('Max-Age=2592000'))throw Error('login must issue a persistent 30-day cookie');
+  await new Promise(resolve=>{child.once('exit',resolve);child.kill('SIGTERM');});
+  child=spawn(process.execPath,['server.js'],{cwd:root,env,stdio:['ignore','pipe','pipe']});child.stderr.on('data',d=>stderr+=d);
+  for(let i=0;i<50;i++){try{if((await req('/healthz')).r.ok)break;}catch{}await sleep(100);}
+  x=await req('/api/me',{headers});if(x.r.status!==200||x.data.csrf!==csrf)throw Error('login lost after server restart');
+  const {DatabaseSync}=require('node:sqlite'),sessionDb=new DatabaseSync(env.DB_FILE);
+  sessionDb.prepare('UPDATE auth_sessions SET renewed_at=?').run(Date.now()-7200000);sessionDb.close();
+  x=await req('/api/me',{headers});if(x.r.status!==200||!x.r.headers.get('set-cookie')?.includes('Max-Age=2592000'))throw Error('active use must renew browser cookie');
+
   x=await req('/api/buildings',{headers:{cookie}});if(!x.r.ok||x.data.length!==0)throw Error('fresh database is not empty');
   x=await req('/api/buildings',{method:'POST',headers,body:JSON.stringify({name:'Реальный объект',address:'Санкт-Петербург',area:1000,occupied:500,floors:2,status:'ok'})});if(!x.r.ok)throw Error('create building failed '+JSON.stringify(x.data));const id=x.data.id;
   x=await req('/api/buildings/'+id,{method:'PATCH',headers,body:JSON.stringify({name:'Объект после редактирования',area:1200})});if(!x.r.ok||x.data.name!=='Объект после редактирования')throw Error('edit building failed');
@@ -179,6 +188,7 @@ async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${ur
   assert.notEqual(spawnSync(process.execPath,['scripts/restore-backup.js',exportedDir,restoreDir],{cwd:root,encoding:'utf8'}).status,0,'restore never overwrites an existing target');
   restoredChild=spawn(process.execPath,['server.js'],{cwd:root,env:{...env,PORT:'18988',DB_FILE:path.join(restoreDir,'app.db'),UPLOAD_DIR:path.join(restoreDir,'private_uploads')},stdio:'ignore'});
   for(let i=0;i<50;i++){try{if((await fetch('http://127.0.0.1:18988/healthz')).ok)break;}catch{}await sleep(100);}
+  if((await fetch('http://127.0.0.1:18988/api/me',{headers})).status!==401)throw Error('backup restore must not revive old sessions');
   const restoredLogin=await fetch('http://127.0.0.1:18988/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:env.OWNER_LOGIN,password:env.OWNER_PASSWORD})});
   assert.equal(restoredLogin.status,200);
   const rh={cookie:restoredLogin.headers.get('set-cookie').split(';')[0]};
