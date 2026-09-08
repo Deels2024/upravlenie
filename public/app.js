@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='3.8.0';
+const APP_VERSION='3.8.1';
 
 const $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const esc=(v='')=>String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -35,9 +35,21 @@ function registerSW(){
  checkForUpdate();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkForUpdate();});
 }
 
-async function boot(){registerSW();try{const me=await api('/api/me');app.user=me.user;app.csrf=me.csrf;await refresh();renderShell();}catch{renderLogin();}}
+async function boot(){registerSW();await restoreSession();}
+let restoringSession=false;
+async function restoreSession(){
+ if(restoringSession)return;restoringSession=true;
+ try{const me=await api('/api/me');app.user=me.user;app.csrf=me.csrf;await refresh();renderShell();}
+ catch(err){if(err.message==='AUTH_REQUIRED')renderLogin();else renderConnectionError();}
+ finally{restoringSession=false;}
+}
+function renderConnectionError(){
+ $('#app').innerHTML=`<main class="login-panel-wrap"><section class="login-panel"><div class="brandmark">OP</div><h2>Не удалось загрузить приложение</h2><p>Проверьте подключение к интернету и повторите попытку. Повторно вводить пароль пока не нужно.</p><button class="btn btn-primary btn-block" id="retrySession">Повторить</button></section></main>`;
+ $('#retrySession').onclick=()=>{const button=$('#retrySession');button.disabled=true;button.textContent='Подключаемся…';restoreSession();};
+}
 
-function renderLogin(){closeModal(true);app.user=null;app.csrf=null;app.data={};app.buildingScope='';issueFilters.state='open';issueFilters.query='';issueFilters.mine=false;$('#app').innerHTML=`<main class="login-shell"><section class="login-hero"><div class="brand"><div class="brandmark">OP</div><div>OWNER PROPERTY</div></div><div class="hero-copy"><div class="eyebrow">● Закрытая система управления</div><h1>Порядок<br>в каждом объекте.</h1><p>Объекты, задания и команда. Всё необходимое для ежедневной работы.</p></div><div class="trust-row"><span class="trust-pill">Без публичной регистрации</span><span class="trust-pill">Ролевой доступ</span><span class="trust-pill">Фотоотчёты</span><span class="trust-pill">PWA</span></div></section><section class="login-panel-wrap"><form class="login-panel" id="loginForm" autocomplete="off"><div class="brandmark">OP</div><h2>Добро пожаловать</h2><p>Используйте учётные данные, выданные владельцем.</p><div class="field"><label>Логин</label><input name="email" required autocomplete="username"></div><div class="field"><label>Пароль</label><input name="password" type="password" required autocomplete="current-password"></div><button class="btn btn-primary btn-block" type="submit">Войти</button><div class="error" id="loginError"></div></form></section></main>`;$('#loginForm').onsubmit=async e=>{e.preventDefault();$('#loginError').textContent='';const fd=new FormData(e.currentTarget);try{const r=await api('/api/login',{method:'POST',body:JSON.stringify({email:fd.get('email'),password:fd.get('password')})});app.user=r.user;app.csrf=r.csrf;app.view='dashboard';await refresh();renderShell();}catch{$('#loginError').textContent='Не удалось войти. Проверьте логин и пароль.';}};}
+
+function renderLogin(){closeModal(true);app.user=null;app.csrf=null;app.data={};app.buildingScope='';issueFilters.state='open';issueFilters.query='';issueFilters.mine=false;$('#app').innerHTML=`<main class="login-shell"><section class="login-hero"><div class="brand"><div class="brandmark">OP</div><div>OWNER PROPERTY</div></div><div class="hero-copy"><div class="eyebrow">● Закрытая система управления</div><h1>Порядок<br>в каждом объекте.</h1><p>Объекты, задания и команда. Всё необходимое для ежедневной работы.</p></div><div class="trust-row"><span class="trust-pill">Без публичной регистрации</span><span class="trust-pill">Ролевой доступ</span><span class="trust-pill">Фотоотчёты</span><span class="trust-pill">PWA</span></div></section><section class="login-panel-wrap"><form class="login-panel" id="loginForm" autocomplete="off"><div class="brandmark">OP</div><h2>Добро пожаловать</h2><p>Используйте учётные данные, выданные владельцем.</p><div class="field"><label>Логин</label><input name="email" required autocomplete="username"></div><div class="field"><label>Пароль</label><input name="password" type="password" required autocomplete="current-password"></div><button class="btn btn-primary btn-block" type="submit">Войти</button><div class="error" id="loginError"></div></form></section></main>`;$('#loginForm').onsubmit=async e=>{e.preventDefault();$('#loginError').textContent='';const fd=new FormData(e.currentTarget);try{const r=await api('/api/login',{method:'POST',body:JSON.stringify({email:fd.get('email'),password:fd.get('password')})});app.user=r.user;app.csrf=r.csrf;app.view='dashboard';await restoreSession();}catch{$('#loginError').textContent='Не удалось войти. Проверьте логин и пароль.';}};}
 
 async function refresh(){const req=[api('/api/dashboard'),api('/api/buildings'),api('/api/tenants'),api('/api/issues')];const [dashboard,buildings,tenants,issues]=await Promise.all(req);app.data={dashboard,buildings,tenants,issues};const extra=[api('/api/notifications')];const set=['notifications'];
   if(staffMode()&&(hasPerm('issues_edit')||hasPerm('inspections_create'))){extra.push(api('/api/assignees'));set.push('assignees');}
@@ -72,7 +84,7 @@ function renderShell(){
  const links=mobile=>nav.map(([v,l,ico])=>`<button data-view="${v}" class="${active===v?'active':''}" ${active===v?'aria-current="page"':''}><span class="${mobile?'ico':'nav-icon'}" aria-hidden="true">${ico}</span><span>${l}</span></button>`).join('');
  $('#app').innerHTML=`<div class="shell"><aside class="sidebar"><div class="brand"><div class="brandmark">OP</div><div>Owner Property</div></div><nav class="nav" aria-label="Основные разделы">${links(false)}</nav><div class="sidebar-bottom"><div class="user-card"><div class="user-name">${esc(app.user.name)}</div><div class="user-role">${esc(roleLabel(app.user.role))}</div><div class="app-version">Версия ${APP_VERSION}</div></div><button class="btn btn-ghost" id="logout">Выйти</button></div></aside><main class="main"><header class="topbar"><h1 id="pageTitle">${esc(titleForView())}</h1><div class="top-actions"><button class="icon-btn notify-btn" id="notificationsBtn" aria-label="Уведомления: ${unread} непрочитанных">${bellIcon}${unread?`<span>${unread}</span>`:''}</button><button class="icon-btn" id="refreshBtn" aria-label="Обновить данные">↻</button></div></header><div class="content">${app.buildingScope?`<div class="scope-bar"><button class="link-btn" id="backToBuilding">← ${esc(app.data.buildings.find(b=>b.id===app.buildingScope)?.name)}</button><button class="link-btn" id="clearScope">Все объекты</button></div>`:!nav.some(([v])=>v===app.view)?'<button class="link-btn back-link" id="backToSettings">← Настройки</button>':''}<div id="view"></div></div></main><nav class="mobile-nav" aria-label="Основные разделы">${links(true)}</nav></div>`;
  $$('[data-view]').forEach(b=>b.onclick=()=>navigate(b.dataset.view));
- const logout=async()=>{FormSafety.clearForUser(app.user.id);try{await api('/api/logout',{method:'POST'});}catch{}renderLogin();};
+ const logout=async()=>{const userId=app.user.id;try{await api('/api/logout',{method:'POST'});FormSafety.clearForUser(userId);renderLogin();}catch(err){if(err.message!=='AUTH_REQUIRED')toast('Не удалось выйти. Проверьте связь и повторите попытку.');}};
  $('#logout').onclick=logout;
  $('#refreshBtn').onclick=async()=>{checkForUpdate();try{await refresh();renderShell();toast('Данные обновлены');}catch(err){toast(errorText(err));}};
  $('#notificationsBtn').onclick=openNotifications;

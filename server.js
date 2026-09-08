@@ -19,8 +19,7 @@ const INSPECTION_UPLOAD_DIR = path.join(PRIVATE_ROOT, 'inspections');
 fs.mkdirSync(ISSUE_UPLOAD_DIR, { recursive:true, mode:0o700 });
 fs.mkdirSync(INSPECTION_UPLOAD_DIR, { recursive:true, mode:0o700 });
 
-const SESSION_TTL = 1000 * 60 * 60 * 8;
-const sessions = new Map();
+const {SessionStore,SESSION_TTL}=require('./src/sessions');
 const loginAttempts = new Map();
 
 const OWNER_LOGIN = String(process.env.OWNER_LOGIN || 'owner').trim().toLowerCase();
@@ -62,6 +61,7 @@ fs.mkdirSync(path.dirname(DB_FILE),{recursive:true,mode:0o700});
 const sqlite = new DatabaseSync(DB_FILE);
 sqlite.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
 sqlite.exec('CREATE TABLE IF NOT EXISTS app_state (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL, updated_at TEXT NOT NULL)');
+const sessions=new SessionStore(sqlite);
 let db = null;
 
 function initStorage(){
@@ -286,13 +286,15 @@ function createIssueFromPayload(payload,actorUser,options={}){
 function json(res,status,data,extraHeaders={}){ res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...extraHeaders});res.end(JSON.stringify(data)); }
 function text(res,status,body,type='text/plain; charset=utf-8'){ res.writeHead(status,{'Content-Type':type});res.end(body); }
 function parseCookies(req){ const out={}; for(const part of(req.headers.cookie||'').split(';')){const i=part.indexOf('=');if(i>0)out[part.slice(0,i).trim()]=decodeURIComponent(part.slice(i+1).trim());}return out; }
-function getSession(req){
+function sessionCookie(sid){return `sid=${encodeURIComponent(sid)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL/1000}${COOKIE_SECURE?'; Secure':''}`;}
+function getSession(req,res){
   const sid=parseCookies(req).sid;if(!sid)return null;const s=sessions.get(sid);
   if(!s||s.expires<Date.now()){if(s)sessions.delete(sid);return null;}
   const live=findUser(s.userId); if(!live||live.active===false){sessions.delete(sid);return null;}
-  s.expires=Date.now()+SESSION_TTL; s.user=safeUser(live); s.sid=sid; return s;
+  if(res&&sessions.renew(sid,s))res.setHeader('Set-Cookie',sessionCookie(sid));
+  s.user=safeUser(live); s.sid=sid; return s;
 }
-function requireSession(req,res){const s=getSession(req);if(!s){json(res,401,{error:'AUTH_REQUIRED'});return null;}return s;}
+function requireSession(req,res){const s=getSession(req,res);if(!s){json(res,401,{error:'AUTH_REQUIRED'});return null;}return s;}
 function csrfOk(req,s){return ['GET','HEAD','OPTIONS'].includes(req.method)||req.headers['x-csrf-token']===s.csrf;}
 function bodyJson(req,maxBytes=1_000_000){return new Promise((resolve,reject)=>{let raw='';let tooLarge=false;req.on('data',c=>{if(tooLarge)return;raw+=c;if(Buffer.byteLength(raw)>maxBytes){tooLarge=true;reject(new Error('too_large'));req.destroy();}});req.on('end',()=>{if(tooLarge)return;try{const value=raw?JSON.parse(raw):{};if(!value||typeof value!=='object'||Array.isArray(value))throw Error('BAD_JSON');resolve(value);}catch(e){reject(e);}});req.on('error',reject);});}
 function clientIp(req){return(req.socket.remoteAddress||'unknown').replace('::ffff:','');}
@@ -309,7 +311,7 @@ function serveStatic(req,res,urlPath){
   let data;try{data=fs.readFileSync(file);}catch{return text(res,404,'Not found');}
   const ext=path.extname(file).toLowerCase();const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json; charset=utf-8','.svg':'image/svg+xml'};const noStore=rel.endsWith('index.html')||rel.endsWith('sw.js')||rel.endsWith('version.json');res.writeHead(200,{'Content-Type':types[ext]||'application/octet-stream','Cache-Control':noStore?'no-store':'public, max-age=3600'});res.end(data);
 }
-function terminateUserSessions(userId){for(const [sid,s] of sessions)if(s.userId===userId)sessions.delete(sid);}
+function terminateUserSessions(userId){sessions.revokeUser(userId);}
 function deadlineReminders(user){
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:process.env.APP_TIME_ZONE||'Europe/Moscow'}).format(new Date());
  return remindersFor(db,user,{canSeeIssue,canAccessBuilding,hasPerm},today);
@@ -357,8 +359,8 @@ async function api(req,res,u){
     let ok=false;if(user){const incoming=Buffer.from(hashPassword(String(b.password||''),user.salt),'hex');const stored=Buffer.from(user.passwordHash,'hex');ok=incoming.length===stored.length&&crypto.timingSafeEqual(stored,incoming);}
     if(!ok)return json(res,401,{error:'INVALID_CREDENTIALS'});
     const sid=crypto.randomBytes(32).toString('hex'),csrf=crypto.randomBytes(24).toString('hex');
-    user.lastLoginAt=nowIso();sessions.set(sid,{userId:user.id,user:safeUser(user),csrf,expires:Date.now()+SESSION_TTL});logSecurity(user.name,'Успешный вход');persist();
-    const cookie=`sid=${encodeURIComponent(sid)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL/1000}${COOKIE_SECURE?'; Secure':''}`;
+    user.lastLoginAt=nowIso();sessions.set(sid,{userId:user.id,csrf});logSecurity(user.name,'Успешный вход');persist();
+    const cookie=sessionCookie(sid);
     return json(res,200,{user:safeUser(user),csrf},{'Set-Cookie':cookie});
   }
   if(req.method==='POST'&&u.pathname==='/api/logout'){
