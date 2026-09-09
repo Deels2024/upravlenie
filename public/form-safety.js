@@ -29,7 +29,7 @@ const FormSafety=(()=>{
   const controls=()=>[...form.querySelectorAll('input,select,textarea')].filter(e=>!['password','file','hidden','submit','button'].includes(e.type));
   const photoControls=()=>[...form.querySelectorAll('input[type="file"]')];
   const identify=(e,n)=>e.closest('[data-check-tenant]')?'tenant:'+e.closest('[data-check-tenant]').dataset.checkTenant+':'+e.dataset.field:e.name||e.id||'field-'+n;
-  const status=(text,state='ready')=>{if(!form.isConnected)return;let note=form.querySelector('[data-draft-status]');if(!note){note=document.createElement('p');note.className='form-status';note.dataset.draftStatus='1';note.setAttribute('role','status');form.querySelector('.modal-body')?.append(note);}note.textContent=text;note.dataset.state=state;};
+  const status=(text,state='ready')=>{if(!form.isConnected)return;let note=form.querySelector('[data-draft-status]');if(!note){note=document.createElement('p');note.className='form-status';note.dataset.draftStatus='1';note.setAttribute('role','status');form.querySelector('.modal-body')?.append(note);}note.style.minHeight=Math.max(parseFloat(note.style.minHeight)||0,note.getBoundingClientRect().height)+'px';note.textContent=text;note.dataset.state=state;};
   let restoring=!!storageKey,revision=0,debounce;
   const signature=photos=>JSON.stringify(photos.map(p=>[p.key,p.files.map(f=>[f.name,f.size,f.lastModified])]));
   function snapshot(){

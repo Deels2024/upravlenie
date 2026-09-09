@@ -9,7 +9,7 @@ async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${ur
 (async()=>{try{
   for(let i=0;i<50;i++){try{const x=await req('/healthz');if(x.r.ok)break}catch{}await sleep(100)}
   let x=await req('/healthz');if(x.data.version!=='3.0.0')throw Error('bad health version');
-  const release=await req('/version.json');if(!release.r.ok||release.data.version!=='3.8.1'||release.r.headers.get('cache-control')!=='no-store')throw Error('release version or cache policy incorrect');
+  const release=await req('/version.json');if(!release.r.ok||release.data.version!=='3.9.0'||release.r.headers.get('cache-control')!=='no-store')throw Error('release version or cache policy incorrect');
   const html=await (await fetch(`http://127.0.0.1:${port}/`)).text();if(!html.includes('/app.js?v='+release.data.version)||!html.includes('/app.css?v='+release.data.version))throw Error('shell version mismatch');
   x=await req('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:env.OWNER_LOGIN,password:env.OWNER_PASSWORD})});if(!x.r.ok)throw Error('owner login failed '+JSON.stringify(x.data));
   const cookie=(x.r.headers.get('set-cookie')||'').split(';')[0],csrf=x.data.csrf,headers={'content-type':'application/json','cookie':cookie,'x-csrf-token':csrf};
@@ -130,6 +130,34 @@ async function req(url,opt={}){const r=await fetch(`http://127.0.0.1:${port}${ur
   const issuesBeforeFailedInspection=(await req('/api/issues',{headers})).data.length;
   const failedInspection=await post('/api/inspections',{...inspectionPayload,clientRequestId:'inspection-invalid',tenantChecks:[{tenantId:tenantA.id,status:'problem',notes:'Leak',photos:report.photos}],buildingFinding:{title:'No required photo'}});
   assert.equal(failedInspection.r.status,422);assert.equal((await req('/api/issues',{headers})).data.length,issuesBeforeFailedInspection,'failed inspection rolls back generated tasks');
+  // Saved photos: owner authorization, required evidence, references, physical deletion and retry safety.
+  const remove=(url,h=headers)=>req(url,{method:'DELETE',headers:h});
+  const originalUrl=firstCreate.data.photos[0].url;
+  assert.equal((await remove(originalUrl,mh)).r.status,403,'only owner may delete saved photos');
+  assert.equal((await remove(originalUrl,{'cookie':cookie})).r.status,403,'delete requires CSRF');
+  const uploaded=await post('/api/issues/'+firstCreate.data.id+'/photos',{photos:report.photos,clientRequestId:'photo-batch-1'});assert.equal(uploaded.r.status,201);
+  const retryPhotos=await post('/api/issues/'+firstCreate.data.id+'/photos',{photos:report.photos,clientRequestId:'photo-batch-1'});assert.deepEqual(retryPhotos.data,uploaded.data);
+  const uploadUrl=uploaded.data.photos[0].url;
+  assert.equal((await remove(uploadUrl)).r.status,200);assert.equal((await remove(uploadUrl)).r.status,200,'delete retry is safe');assert.equal((await req(uploadUrl,{headers})).r.status,404);
+  assert.equal((await post('/api/issues/'+firstCreate.data.id+'/photos',{photos:report.photos,clientRequestId:'photo-batch-1'})).data.photos.length,0,'retry cannot resurrect deleted photos');
+  assert.equal((await remove(originalUrl)).r.status,200);
+  let photoIssue=(await req('/api/issues',{headers})).data.find(i=>i.id===firstCreate.data.id);assert.equal(photoIssue.photos.length,0);assert.ok(photoIssue.timeline.some(t=>t.text.includes('Удалено фото')));
+  assert.equal(fs.readdirSync(path.join(env.UPLOAD_DIR,'issues',firstCreate.data.id)).length,0,'deleted files are removed');
+  assert.equal((await remove(completed.data.photos[0].url)).data.error,'REQUIRED_REPORT_PHOTO');
+  const twoReport=await post('/api/issues/'+firstCreate.data.id+'/reports',{...report,clientRequestId:'two-photos',photos:[...report.photos,...report.photos]});assert.equal(twoReport.r.status,201);
+  assert.equal((await remove(twoReport.data.reports[0].photos[0].url)).r.status,200);
+  photoIssue=(await req('/api/issues',{headers})).data.find(i=>i.id===firstCreate.data.id);assert.equal(photoIssue.reports[0].photos.length,1);assert.equal(photoIssue.photos.length,1);
+  const fourInspection=await post('/api/inspections',{...inspectionPayload,clientRequestId:'four-photos',exteriorPhotos:[1,2,3,4].map(n=>({side:'Side '+n,photo:report.photos[0]})),tenantChecks:[{tenantId:tenantA.id,status:'problem',notes:'Leak',photos:report.photos}],buildingFinding:{title:'Wall crack',photos:report.photos}});assert.equal(fourInspection.r.status,201);
+  assert.equal((await remove(fourInspection.data.exteriorPhotos[0].url,mh)).r.status,403);
+  assert.equal((await remove(fourInspection.data.exteriorPhotos[0].url)).r.status,200);
+  assert.equal((await req(fourInspection.data.exteriorPhotos[0].url,{headers})).r.status,404);
+  assert.equal((await remove(fourInspection.data.exteriorPhotos[1].url)).data.error,'REQUIRED_INSPECTION_PHOTOS');
+  assert.equal((await remove(fourInspection.data.tenantChecks[0].photos[0].url)).data.error,'REQUIRED_INSPECTION_PHOTOS');
+  assert.equal((await remove(fourInspection.data.buildingFinding.photos[0].url)).data.error,'REQUIRED_INSPECTION_PHOTOS');
+  const photoInspection=(await req('/api/inspections',{headers})).data.find(i=>i.id===fourInspection.data.id);assert.equal(photoInspection.exteriorPhotos.length,3);assert.equal(photoInspection.photoHistory.length,1);
+  const generatedIssue=(await req('/api/issues',{headers})).data.find(i=>i.id===fourInspection.data.buildingFinding.issueId);
+  assert.equal((await remove(generatedIssue.photos[0].url)).data.error,'REQUIRED_PROBLEM_PHOTO');
+  console.log('Photos: upload retry, owner-only deletion, CSRF, required evidence and file/reference cleanup: OK');
   // Technical registry: rights, retry safety, validation and archive isolation.
   const eqPayload={buildingId:a,name:'Насос',system:'Водоснабжение',model:'Pump-100',nextService:'2020-01-01',clientRequestId:'eq-1'};
   assert.equal((await post('/api/equipment',eqPayload,th)).r.status,403,'view permission does not grant writes');

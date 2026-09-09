@@ -11,6 +11,7 @@ const { URL } = require('url');
 const { DatabaseSync } = require('node:sqlite');
 
 const {remindersFor}=require('./src/reminders');
+const {removePhoto}=require('./src/photo-removal');
 const {validDate,tenantPayload,expensePayload,equipmentPayload,metricsPayload}=require('./src/management');
 const config = require('./src/config')(__dirname);
 const {PORT,HOST,PROD,COOKIE_SECURE,PUBLIC_DIR,DATA_FILE,PRIVATE_ROOT,DB_FILE}=config;
@@ -437,6 +438,23 @@ async function api(req,res,u){
     return json(res,200,db.inspectionPlans.filter(p=>canAccessBuilding(user,p.buildingId)&&db.buildings.some(b=>b.id===p.buildingId&&!b.archivedAt)).map(p=>({...p,inspectorName:findUser(p.inspectorUserId)?.name||''})));
   }
 
+  if(req.method==='DELETE'&&/^\/api\/(issue|inspection)-media\/[^/]+\/[^/]+$/.test(u.pathname)){
+    if(user.role!=='owner')return json(res,403,{error:'FORBIDDEN'});
+    const parts=u.pathname.split('/'),kind=parts[2]==='issue-media'?'issue':'inspection',id=decodeURIComponent(parts[3]),photoId=decodeURIComponent(parts[4]),key=kind==='issue'?'issues':'inspections';
+    const item=db[key].find(x=>x.id===id);if(!item)return json(res,404,{error:'NOT_FOUND'});
+    if(kind==='issue')ensureIssueShape(item);else ensureInspectionShape(item);
+    let removed;try{removed=removePhoto(item,photoId,kind);}catch(e){return json(res,422,{error:e.message});}
+    if(!removed)return json(res,200,{ok:true});
+    const before=structuredClone(db),{next,photo}=removed,at=nowIso();
+    if(kind==='issue')next.timeline.push({at,actor:user.name,text:`Удалено фото ${photoId}`});
+    else{if(!next.photoHistory)next.photoHistory=[];next.photoHistory.push({at,actor:user.name,text:`Удалено фото ${photoId}`});}
+    db[key][db[key].indexOf(item)]=next;logSecurity(user.name,`Удалено фото ${photoId}, ${kind} ${id}`);
+    try{persist();}catch(e){db=before;throw e;}
+    const root=kind==='issue'?ISSUE_UPLOAD_DIR:INSPECTION_UPLOAD_DIR;
+    try{fs.unlinkSync(path.join(root,id,photo.file));}catch(e){if(e.code!=='ENOENT')console.error('Photo file cleanup failed:',photoId);}
+    return json(res,200,{ok:true});
+  }
+
   if(req.method==='GET'&&u.pathname.startsWith('/api/issue-media/')){
     const parts=u.pathname.split('/').filter(Boolean),issueId=decodeURIComponent(parts[2]||''),photoId=decodeURIComponent(parts[3]||'');const issue=db.issues.find(x=>x.id===issueId);
     if(!issue)return json(res,404,{error:'NOT_FOUND'});if(!canSeeIssue(user,issue))return json(res,403,{error:'FORBIDDEN'});ensureIssueShape(issue);const meta=issue.photos.find(x=>x.id===photoId);if(!meta)return json(res,404,{error:'NOT_FOUND'});
@@ -511,7 +529,10 @@ async function api(req,res,u){
   if(req.method==='POST'&&/^\/api\/issues\/[^/]+\/photos$/.test(u.pathname)){
     const id=decodeURIComponent(u.pathname.split('/')[3]||''),item=db.issues.find(x=>x.id===id);if(!item)return json(res,404,{error:'NOT_FOUND'});if(!canSeeIssue(user,item))return json(res,403,{error:'FORBIDDEN'});
     let b;try{b=await bodyJson(req,30_000_000);}catch{return json(res,413,{error:'UPLOAD_TOO_LARGE'});}const kind=['problem','progress','solution'].includes(b.kind)?b.kind:'problem';if(isTenant(user)&&kind!=='problem')return json(res,403,{error:'FORBIDDEN'});if(!isTenant(user)&&!canEditIssue(user,item))return json(res,403,{error:'FORBIDDEN'});
-    try{const saved=saveIssuePhotos(item,b.photos,kind,user.name);if(saved.length)item.timeline.push({at:nowIso(),actor:user.name,text:`Добавлены фотографии: ${saved.length}`});persist();return json(res,201,{photos:saved.map(p=>publicIssuePhoto(p,item.id))});}catch(e){return json(res,422,{error:e.message});}
+    const requestId=String(b.clientRequestId||'').slice(0,100),receipt=requestId&&(item.photoUploads||[]).find(p=>p.clientRequestId===requestId&&p.authorUserId===user.id);
+    if(receipt)return json(res,201,{photos:item.photos.filter(p=>receipt.photoIds.includes(p.id)).map(p=>publicIssuePhoto(p,item.id))});
+    if(!Array.isArray(b.photos)||!b.photos.length)return json(res,422,{error:'PHOTO_REQUIRED'});
+    try{const saved=saveIssuePhotos(item,b.photos,kind,user.name);if(requestId){if(!item.photoUploads)item.photoUploads=[];item.photoUploads.push({clientRequestId:requestId,authorUserId:user.id,photoIds:saved.map(p=>p.id)});}if(saved.length)item.timeline.push({at:nowIso(),actor:user.name,text:`Добавлены фотографии: ${saved.length}`});persist();return json(res,201,{photos:saved.map(p=>publicIssuePhoto(p,item.id))});}catch(e){return json(res,422,{error:e.message});}
   }
   if(req.method==='POST'&&/^\/api\/issues\/[^/]+\/reports$/.test(u.pathname)){
     const id=decodeURIComponent(u.pathname.split('/')[3]||''),item=db.issues.find(x=>x.id===id);if(!item)return json(res,404,{error:'NOT_FOUND'});if(!canEditIssue(user,item))return json(res,403,{error:'FORBIDDEN'});
@@ -698,4 +719,3 @@ async function shutdown(signal){
 }
 process.on('SIGTERM',()=>shutdown('SIGTERM'));
 process.on('SIGINT',()=>shutdown('SIGINT'));
-
